@@ -3,11 +3,12 @@ import { Routes, Route } from 'react-router-dom';
 import Navbar from './components/common/Navbar.tsx';
 import LoginPage from './pages/LoginPage.tsx';
 import RegisterPage from './pages/RegisterPage.tsx';
+import DashboardPage from './pages/DashboardPage.tsx';
 
 const App: React.FC = () => {
     return (
         <div className="min-h-screen">
-            <Navbar />  
+            <Navbar />
             <main>
                 <Routes>
                     <Route path="/" element={
@@ -21,6 +22,7 @@ const App: React.FC = () => {
                     } />
                     <Route path="/login" element={<LoginPage />} />
                     <Route path="/register" element={<RegisterPage />} />
+                    <Route path="/dashboard" element={<DashboardPage />} />
                 </Routes>
             </main>
         </div>

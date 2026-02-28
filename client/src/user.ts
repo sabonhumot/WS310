@@ -6,6 +6,8 @@ export interface LoginData {
 export interface RegisterData {
     firstName: string;
     lastName: string;
+    nickname: string;
+    email: string;
     username: string;
     password: string;
     confirmPassword: string;

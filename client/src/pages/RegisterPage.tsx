@@ -6,27 +6,76 @@ import { Link } from 'react-router-dom';
 const RegisterPage: React.FC = () => {
 
     const [showPassword, setShowPassword] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [success, setSuccess] = useState(false);
+    const [loading, setLoading] = useState(false);
     const [formData, setFormData] = useState({
         firstName: '',
         lastName: '',
+        nickname: '',
+        email: '',
         username: '',
         password: '',
         confirmPassword: '',
     });
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        console.log('Registration attempt:', formData);
+        setError(null);
+        setSuccess(false);
+
+        if (formData.password !== formData.confirmPassword) {
+            setError("Passwords do not match");
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const response = await fetch("http://localhost:5001/api/register", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(formData),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.message || "Registration failed");
+            }
+
+            setSuccess(true);
+            setFormData({
+                firstName: '',
+                lastName: '',
+                nickname: '',
+                email: '',
+                username: '',
+                password: '',
+                confirmPassword: '',
+            });
+        } catch (err: any) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (
-        <div className="min-h-[calc(100vh-73px)] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-gray-50/30">
+        <div className="min-h-[calc(100vh-73px)] flex items-center justify-center pt-24 pb-12 px-4 sm:px-6 lg:px-8 bg-gray-50/30">
             <div className="w-full max-w-md">
                 <div className="bg-white rounded-2xl shadow-xl shadow-gray-200/50 border border-gray-100 p-8">
                     <div className="text-center mb-8">
                         <h2 className="text-3xl font-bold text-gray-900 tracking-tight">Create account</h2>
                         <p className="text-gray-500 mt-2">Join us to start splitting bills easily</p>
                     </div>
+
+                    {success && (
+                        <div className="mb-4 p-3 bg-green-50 border border-green-100 text-green-600 text-sm rounded-xl">
+                            Registration successful! You can now <Link to="/login" className="font-bold underline">sign in</Link>.
+                        </div>
+                    )}
 
                     <form onSubmit={handleSubmit} className="space-y-5">
                         <div className="grid grid-cols-2 gap-4">
@@ -71,6 +120,46 @@ const RegisterPage: React.FC = () => {
                         </div>
 
                         <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="nickname">
+                                Nickname
+                            </label>
+                            <div className="relative group">
+                                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400 group-focus-within:text-indigo-600 transition-colors">
+                                    <User size={18} />
+                                </div>
+                                <input
+                                    id="nickname"
+                                    type="text"
+                                    required
+                                    className="block w-full pl-10 pr-3 py-3 border border-gray-200 rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:bg-white transition-all sm:text-sm"
+                                    placeholder="Nickname"
+                                    value={formData.nickname}
+                                    onChange={(e) => setFormData({ ...formData, nickname: e.target.value })}
+                                />
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="email">
+                                Email
+                            </label>
+                            <div className="relative group">
+                                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400 group-focus-within:text-indigo-600 transition-colors">
+                                    <Mail size={18} />
+                                </div>
+                                <input
+                                    id="email"
+                                    type="email"
+                                    required
+                                    className="block w-full pl-10 pr-3 py-3 border border-gray-200 rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:bg-white transition-all sm:text-sm"
+                                    placeholder="Email address"
+                                    value={formData.email}
+                                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                                />
+                            </div>
+                        </div>
+
+                        <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="username">
                                 Username
                             </label>
@@ -83,7 +172,7 @@ const RegisterPage: React.FC = () => {
                                     type="text"
                                     required
                                     className="block w-full pl-10 pr-3 py-3 border border-gray-200 rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:bg-white transition-all sm:text-sm"
-                                    placeholder="Email"
+                                    placeholder="Username"
                                     value={formData.username}
                                     onChange={(e) => setFormData({ ...formData, username: e.target.value })}
                                 />
@@ -138,12 +227,19 @@ const RegisterPage: React.FC = () => {
                             </div>
                         </div>
 
+                        {error && (
+                            <p className="text-red-500 text-xs font-medium mt-1 animate-in fade-in slide-in-from-top-1">
+                                {error}
+                            </p>
+                        )}
+
                         <div className="pt-2">
                             <button
                                 type="submit"
-                                className="group relative w-full flex justify-center py-3 px-4 border border-transparent rounded-xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all active:scale-[0.98] shadow-lg shadow-indigo-200"
+                                disabled={loading}
+                                className="group relative w-full flex justify-center py-3 px-4 border border-transparent rounded-xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all active:scale-[0.98] shadow-lg shadow-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                Create Account
+                                {loading ? "Creating Account..." : "Create Account"}
                                 <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
                             </button>
                         </div>
