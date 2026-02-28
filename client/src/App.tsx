@@ -3,6 +3,7 @@ import { Routes, Route } from 'react-router-dom';
 import Navbar from './components/common/Navbar.tsx';
 import LoginPage from './pages/LoginPage.tsx';
 import RegisterPage from './pages/RegisterPage.tsx';
+import DashboardPage from './pages/DashboardPage.tsx';
 import { Users, Check, Info, CheckCircle2 } from 'lucide-react';
 
 const Landing: React.FC = () => {
@@ -99,6 +100,7 @@ const App: React.FC = () => {
                     <Route path="/" element={<Landing />} />
                     <Route path="/login" element={<LoginPage />} />
                     <Route path="/register" element={<RegisterPage />} />
+                    <Route path="/dashboard" element={<DashboardPage />} />
                 </Routes>
             </main>
         </div>
