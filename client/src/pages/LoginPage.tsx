@@ -1,10 +1,11 @@
 import React from 'react';
 import { useState } from 'react';
+import toast from 'react-hot-toast';
 import { User, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 
 const LoginPage: React.FC = () => {
-
     const [showPassword, setShowPassword] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
@@ -14,6 +15,7 @@ const LoginPage: React.FC = () => {
     });
 
     const navigate = useNavigate();
+    const { login } = useAuth();
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -35,10 +37,14 @@ const LoginPage: React.FC = () => {
                 throw new Error(data.message || "Login failed");
             }
 
-            // In a real app, you would save the token/user info here
+            // Save user data in context and localStorage
+            login(data.user);
+            toast.success("Login successful!");
             navigate('/dashboard');
-        } catch (err: any) {
-            setError(err.message);
+        } catch (err: unknown) {
+            const errorMsg = err instanceof Error ? err.message : "An error occurred";
+            toast.error(errorMsg);
+            setError(errorMsg);
         } finally {
             setLoading(false);
         }

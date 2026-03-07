@@ -1,14 +1,13 @@
 import React from 'react';
 import { useState } from 'react';
+import toast from 'react-hot-toast';
 import { Mail, Lock, Eye, EyeOff, User, ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 const RegisterPage: React.FC = () => {
-
     const [showPassword, setShowPassword] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [success, setSuccess] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [fieldErrors, setFieldErrors] = useState<{ [key: string]: string }>({});
     const [formData, setFormData] = useState({
         firstName: '',
         lastName: '',
@@ -19,13 +18,46 @@ const RegisterPage: React.FC = () => {
         confirmPassword: '',
     });
 
+    const validateForm = (): boolean => {
+        const errors: { [key: string]: string } = {};
+
+        if (!formData.firstName.trim()) {
+            errors.firstName = 'First name is required';
+        }
+        if (!formData.lastName.trim()) {
+            errors.lastName = 'Last name is required';
+        }
+        if (!formData.nickname.trim()) {
+            errors.nickname = 'Nickname is required';
+        }
+        if (!formData.email.trim()) {
+            errors.email = 'Email is required';
+        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+            errors.email = 'Please enter a valid email';
+        }
+        if (!formData.username.trim()) {
+            errors.username = 'Username is required';
+        }
+        if (!formData.password) {
+            errors.password = 'Password is required';
+        } else if (formData.password.length < 6) {
+            errors.password = 'Password must be at least 6 characters';
+        }
+        if (!formData.confirmPassword) {
+            errors.confirmPassword = 'Please confirm your password';
+        } else if (formData.password !== formData.confirmPassword) {
+            errors.confirmPassword = 'Passwords do not match';
+        }
+
+        setFieldErrors(errors);
+        return Object.keys(errors).length === 0;
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        setError(null);
-        setSuccess(false);
+        setFieldErrors({});
 
-        if (formData.password !== formData.confirmPassword) {
-            setError("Passwords do not match");
+        if (!validateForm()) {
             return;
         }
 
@@ -42,10 +74,18 @@ const RegisterPage: React.FC = () => {
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.message || "Registration failed");
+                // Handle server-side field errors
+                if (data.message.includes('Email')) {
+                    setFieldErrors(prev => ({ ...prev, email: data.message }));
+                } else if (data.message.includes('Username')) {
+                    setFieldErrors(prev => ({ ...prev, username: data.message }));
+                } else if (data.message.includes('Nickname')) {
+                    setFieldErrors(prev => ({ ...prev, nickname: data.message }));
+                }
+                return;
             }
 
-            setSuccess(true);
+            toast.success("Registration successful! Please check your email to verify your account.");
             setFormData({
                 firstName: '',
                 lastName: '',
@@ -55,10 +95,23 @@ const RegisterPage: React.FC = () => {
                 password: '',
                 confirmPassword: '',
             });
-        } catch (err: any) {
-            setError(err.message);
+        } catch (err: unknown) {
+            const errorMsg = err instanceof Error ? err.message : "An error occurred";
+            toast.error(errorMsg);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleInputChange = (field: string, value: string) => {
+        setFormData(prev => ({ ...prev, [field]: value }));
+        // Clear error for this field when user starts typing
+        if (fieldErrors[field]) {
+            setFieldErrors(prev => {
+                const newErrors = { ...prev };
+                delete newErrors[field];
+                return newErrors;
+            });
         }
     };
 
@@ -70,12 +123,6 @@ const RegisterPage: React.FC = () => {
                         <h2 className="text-3xl font-bold text-gray-900 tracking-tight">Create account</h2>
                         <p className="text-gray-500 mt-2">Join us to start splitting bills easily</p>
                     </div>
-
-                    {success && (
-                        <div className="mb-4 p-3 bg-green-50 border border-green-100 text-green-600 text-sm rounded-xl">
-                            Registration successful! You can now <Link to="/login" className="font-bold underline">sign in</Link>.
-                        </div>
-                    )}
 
                     <form onSubmit={handleSubmit} className="space-y-5">
                         <div className="grid grid-cols-2 gap-4">
@@ -90,13 +137,17 @@ const RegisterPage: React.FC = () => {
                                     <input
                                         id="firstName"
                                         type="text"
-                                        required
-                                        className="block w-full pl-10 pr-3 py-3 border border-gray-200 rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:bg-white transition-all sm:text-sm"
+                                        className={`block w-full pl-10 pr-3 py-3 border rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:bg-white transition-all sm:text-sm ${
+                                            fieldErrors.firstName ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-200 focus:ring-indigo-500/20 focus:border-indigo-500'
+                                        }`}
                                         placeholder="First Name"
                                         value={formData.firstName}
-                                        onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                                        onChange={(e) => handleInputChange('firstName', e.target.value)}
                                     />
                                 </div>
+                                {fieldErrors.firstName && (
+                                    <p className="mt-1 text-xs text-red-600 font-medium">{fieldErrors.firstName}</p>
+                                )}
                             </div>
                             <div>
                                 <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="lastName">
@@ -109,13 +160,17 @@ const RegisterPage: React.FC = () => {
                                     <input
                                         id="lastName"
                                         type="text"
-                                        required
-                                        className="block w-full pl-10 pr-3 py-3 border border-gray-200 rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:bg-white transition-all sm:text-sm"
+                                        className={`block w-full pl-10 pr-3 py-3 border rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:bg-white transition-all sm:text-sm ${
+                                            fieldErrors.lastName ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-200 focus:ring-indigo-500/20 focus:border-indigo-500'
+                                        }`}
                                         placeholder="Last Name"
                                         value={formData.lastName}
-                                        onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                                        onChange={(e) => handleInputChange('lastName', e.target.value)}
                                     />
                                 </div>
+                                {fieldErrors.lastName && (
+                                    <p className="mt-1 text-xs text-red-600 font-medium">{fieldErrors.lastName}</p>
+                                )}
                             </div>
                         </div>
 
@@ -130,13 +185,17 @@ const RegisterPage: React.FC = () => {
                                 <input
                                     id="nickname"
                                     type="text"
-                                    required
-                                    className="block w-full pl-10 pr-3 py-3 border border-gray-200 rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:bg-white transition-all sm:text-sm"
+                                    className={`block w-full pl-10 pr-3 py-3 border rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:bg-white transition-all sm:text-sm ${
+                                        fieldErrors.nickname ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-200 focus:ring-indigo-500/20 focus:border-indigo-500'
+                                    }`}
                                     placeholder="Nickname"
                                     value={formData.nickname}
-                                    onChange={(e) => setFormData({ ...formData, nickname: e.target.value })}
+                                    onChange={(e) => handleInputChange('nickname', e.target.value)}
                                 />
                             </div>
+                            {fieldErrors.nickname && (
+                                <p className="mt-1 text-xs text-red-600 font-medium">{fieldErrors.nickname}</p>
+                            )}
                         </div>
 
                         <div>
@@ -150,13 +209,17 @@ const RegisterPage: React.FC = () => {
                                 <input
                                     id="email"
                                     type="email"
-                                    required
-                                    className="block w-full pl-10 pr-3 py-3 border border-gray-200 rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:bg-white transition-all sm:text-sm"
+                                    className={`block w-full pl-10 pr-3 py-3 border rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:bg-white transition-all sm:text-sm ${
+                                        fieldErrors.email ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-200 focus:ring-indigo-500/20 focus:border-indigo-500'
+                                    }`}
                                     placeholder="Email address"
                                     value={formData.email}
-                                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                                    onChange={(e) => handleInputChange('email', e.target.value)}
                                 />
                             </div>
+                            {fieldErrors.email && (
+                                <p className="mt-1 text-xs text-red-600 font-medium">{fieldErrors.email}</p>
+                            )}
                         </div>
 
                         <div>
@@ -170,13 +233,17 @@ const RegisterPage: React.FC = () => {
                                 <input
                                     id="username"
                                     type="text"
-                                    required
-                                    className="block w-full pl-10 pr-3 py-3 border border-gray-200 rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:bg-white transition-all sm:text-sm"
+                                    className={`block w-full pl-10 pr-3 py-3 border rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:bg-white transition-all sm:text-sm ${
+                                        fieldErrors.username ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-200 focus:ring-indigo-500/20 focus:border-indigo-500'
+                                    }`}
                                     placeholder="Username"
                                     value={formData.username}
-                                    onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                                    onChange={(e) => handleInputChange('username', e.target.value)}
                                 />
                             </div>
+                            {fieldErrors.username && (
+                                <p className="mt-1 text-xs text-red-600 font-medium">{fieldErrors.username}</p>
+                            )}
                         </div>
 
 
@@ -191,11 +258,12 @@ const RegisterPage: React.FC = () => {
                                 <input
                                     id="password"
                                     type={showPassword ? 'text' : 'password'}
-                                    required
-                                    className="block w-full pl-10 pr-10 py-3 border border-gray-200 rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:bg-white transition-all sm:text-sm"
+                                    className={`block w-full pl-10 pr-10 py-3 border rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:bg-white transition-all sm:text-sm ${
+                                        fieldErrors.password ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-200 focus:ring-indigo-500/20 focus:border-indigo-500'
+                                    }`}
                                     placeholder="••••••••"
                                     value={formData.password}
-                                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                                    onChange={(e) => handleInputChange('password', e.target.value)}
                                 />
                                 <button
                                     type="button"
@@ -205,6 +273,9 @@ const RegisterPage: React.FC = () => {
                                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                                 </button>
                             </div>
+                            {fieldErrors.password && (
+                                <p className="mt-1 text-xs text-red-600 font-medium">{fieldErrors.password}</p>
+                            )}
                         </div>
 
                         <div>
@@ -218,41 +289,39 @@ const RegisterPage: React.FC = () => {
                                 <input
                                     id="confirmPassword"
                                     type={showPassword ? 'text' : 'password'}
-                                    required
-                                    className="block w-full pl-10 pr-10 py-3 border border-gray-200 rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:bg-white transition-all sm:text-sm"
+                                    className={`block w-full pl-10 pr-10 py-3 border rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:bg-white transition-all sm:text-sm ${
+                                        fieldErrors.confirmPassword ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-200 focus:ring-indigo-500/20 focus:border-indigo-500'
+                                    }`}
                                     placeholder="••••••••"
                                     value={formData.confirmPassword}
-                                    onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+                                    onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
                                 />
                             </div>
+                            {fieldErrors.confirmPassword && (
+                                <p className="mt-1 text-xs text-red-600 font-medium">{fieldErrors.confirmPassword}</p>
+                            )}
                         </div>
 
-                        {error && (
-                            <p className="text-red-500 text-xs font-medium mt-1 animate-in fade-in slide-in-from-top-1">
-                                {error}
-                            </p>
-                        )}
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2 mt-2"
+                        >
+                            {loading ? 'Creating account...' : (
+                                <>
+                                    Create Account
+                                    <ArrowRight size={18} />
+                                </>
+                            )}
+                        </button>
 
-                        <div className="pt-2">
-                            <button
-                                type="submit"
-                                disabled={loading}
-                                className="group relative w-full flex justify-center py-3 px-4 border border-transparent rounded-xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all active:scale-[0.98] shadow-lg shadow-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                {loading ? "Creating Account..." : "Create Account"}
-                                <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
-                            </button>
-                        </div>
-                    </form>
-
-                    <div className="mt-8 pt-6 border-t border-gray-100 text-center">
-                        <p className="text-sm text-gray-600">
+                        <p className="text-center text-gray-600 text-sm font-medium mt-6">
                             Already have an account?{' '}
-                            <Link to="/login" className="font-bold text-indigo-600 hover:text-indigo-500 transition-colors">
+                            <Link to="/login" className="text-indigo-600 hover:text-indigo-700 font-bold">
                                 Sign in
                             </Link>
                         </p>
-                    </div>
+                    </form>
                 </div>
             </div>
         </div>

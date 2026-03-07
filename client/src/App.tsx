@@ -1,10 +1,18 @@
 import type React from "react";
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from 'react-hot-toast';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Navbar from './components/common/Navbar.tsx';
 import LoginPage from './pages/LoginPage.tsx';
 import RegisterPage from './pages/RegisterPage.tsx';
 import DashboardPage from './pages/DashboardPage.tsx';
-import { Users, Check, Info, CheckCircle2 } from 'lucide-react';
+import VerifyPage from './pages/VerifyPage.tsx';
+import ActivityPage from './pages/ActivityPage.tsx';
+import GroupsPage from './pages/GroupsPage.tsx';
+import SettingsPage from './pages/SettingsPage.tsx';
+import BillsPage from './pages/BillsPage.tsx';
+import ArchivePage from './pages/ArchivePage.tsx';
+import { Users, Check, CheckCircle2 } from 'lucide-react';
 
 const Landing: React.FC = () => {
     return (
@@ -91,19 +99,48 @@ const Landing: React.FC = () => {
     );
 };
 
-const App: React.FC = () => {
+const ProtectedRoute: React.FC<{ element: React.ReactNode }> = ({ element }) => {
+    const { isLoggedIn, isLoading } = useAuth();
+
+    if (isLoading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+            </div>
+        );
+    }
+
+    return isLoggedIn ? element : <Navigate to="/login" replace />;
+};
+
+const AppContent: React.FC = () => {
     return (
         <div className="min-h-screen">
+            <Toaster position="top-right" />
             <Navbar />
             <main>
                 <Routes>
                     <Route path="/" element={<Landing />} />
                     <Route path="/login" element={<LoginPage />} />
                     <Route path="/register" element={<RegisterPage />} />
-                    <Route path="/dashboard" element={<DashboardPage />} />
+                    <Route path="/verify" element={<VerifyPage />} />
+                    <Route path="/dashboard" element={<ProtectedRoute element={<DashboardPage />} />} />
+                    <Route path="/bills" element={<ProtectedRoute element={<BillsPage />} />} />
+                    <Route path="/archive" element={<ProtectedRoute element={<ArchivePage />} />} />
+                    <Route path="/activity" element={<ProtectedRoute element={<ActivityPage />} />} />
+                    <Route path="/groups" element={<ProtectedRoute element={<GroupsPage />} />} />
+                    <Route path="/settings" element={<ProtectedRoute element={<SettingsPage />} />} />
                 </Routes>
             </main>
         </div>
+    );
+};
+
+const App: React.FC = () => {
+    return (
+        <AuthProvider>
+            <AppContent />
+        </AuthProvider>
     );
 };
 
