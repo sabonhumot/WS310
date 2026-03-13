@@ -1,68 +1,105 @@
-import React from 'react';
-import { LayoutDashboard, History, Users, Settings } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { ArrowUpRight, ArrowDownLeft, Filter, Search } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 const ActivityPage: React.FC = () => {
-    const recentActivity = [
-        { id: 1, title: 'Dinner at Ribshack', amount: '₱500.00', status: 'Pending', type: 'owe', date: 'Today' },
-        { id: 2, title: 'Movie Night', amount: '₱250.00', status: 'Paid', type: 'lent', date: 'Yesterday' },
-        { id: 3, title: 'Car Rental', amount: '₱1,200.00', status: 'Pending', type: 'lent', date: '2 days ago' },
-    ];
+    const { user } = useAuth();
+    const [activities, setActivities] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [searchTerm, setSearchTerm] = useState('');
+
+    useEffect(() => {
+        const fetchActivity = async () => {
+            if (!user) return;
+            try {
+                const response = await fetch(`http://localhost:5001/api/activity/${user.id}`);
+                const data = await response.json();
+                setActivities(data.activities);
+            } catch (error) {
+                console.error('Error fetching activity:', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchActivity();
+    }, [user]);
+
+    const filteredActivities = activities.filter(activity => 
+        activity.title.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center min-h-[60vh]">
+                <div className="animate-spin h-10 w-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full"></div>
+            </div>
+        );
+    }
 
     return (
-        <div className="min-h-screen pt-24 pb-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto flex gap-8">
-            {/* Sidebar Navigation */}
-            <aside className="hidden lg:flex flex-col w-64 space-y-2">
-                <nav className="space-y-1">
-                    <a href="/dashboard" className="flex items-center gap-3 px-4 py-3 text-gray-500 hover:bg-gray-50 rounded-xl font-medium transition-colors">
-                        <LayoutDashboard className="w-5 h-5" />
-                        Dashboard
-                    </a>
-                    <a href="/activity" className="flex items-center gap-3 px-4 py-3 bg-indigo-50 text-indigo-600 rounded-xl font-semibold">
-                        <History className="w-5 h-5" />
-                        Activity
-                    </a>
-                    <a href="/groups" className="flex items-center gap-3 px-4 py-3 text-gray-500 hover:bg-gray-50 rounded-xl font-medium transition-colors">
-                        <Users className="w-5 h-5" />
-                        Groups
-                    </a>
-                    <a href="/settings" className="flex items-center gap-3 px-4 py-3 text-gray-500 hover:bg-gray-50 rounded-xl font-medium transition-colors">
-                        <Settings className="w-5 h-5" />
-                        Settings
-                    </a>
-                </nav>
-            </aside>
-
-            {/* Main Content */}
-            <main className="flex-1">
-                <header className="mb-8">
+        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
                     <h1 className="text-3xl font-black text-gray-900">Activity History</h1>
-                    <p className="text-gray-500 font-medium mt-2">Track all your bill splits and transactions</p>
-                </header>
+                    <p className="text-gray-500 font-medium mt-1">Track all your bill splits and transactions</p>
+                </div>
+                <div className="flex gap-2 w-full sm:w-auto">
+                    <div className="relative flex-1 sm:w-64">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <input 
+                            type="text"
+                            placeholder="Search activity..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-sm transition-all"
+                        />
+                    </div>
+                    <button className="p-2 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors text-gray-600">
+                        <Filter className="w-5 h-5" />
+                    </button>
+                </div>
+            </header>
+
+            <div className="space-y-4">
+                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
+                    <button className="px-4 py-1.5 bg-indigo-600 text-white rounded-full text-xs font-black uppercase tracking-widest ring-4 ring-indigo-50 whitespace-nowrap">All</button>
+                    <button className="px-4 py-1.5 bg-white text-gray-500 rounded-full text-xs font-black uppercase tracking-widest border border-gray-100 hover:bg-gray-50 cursor-pointer whitespace-nowrap">Expenses</button>
+                    <button className="px-4 py-1.5 bg-white text-gray-500 rounded-full text-xs font-black uppercase tracking-widest border border-gray-100 hover:bg-gray-50 cursor-pointer whitespace-nowrap">Settlements</button>
+                </div>
 
                 <div className="space-y-3">
-                    {recentActivity.map((item) => (
-                        <div key={item.id} className="bg-white p-4 rounded-xl border border-gray-100 flex items-center justify-between hover:shadow-md transition-shadow">
-                            <div className="flex items-center gap-4">
-                                <div className={`p-3 rounded-full ${item.type === 'owe' ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
-                                    {item.type === 'owe' ? '↓' : '↑'}
+                    {filteredActivities.length > 0 ? (
+                        filteredActivities.map((item) => (
+                            <div key={item.id} className="glass-card p-4 flex items-center justify-between hover:scale-[1.01] transition-all cursor-pointer border-l-4 border-l-transparent hover:border-l-indigo-500 group">
+                                <div className="flex items-center gap-4">
+                                    <div className={`p-3 rounded-xl transition-colors ${item.type === 'owe' ? 'bg-red-50 text-red-600 group-hover:bg-red-100' : 'bg-green-50 text-green-600 group-hover:bg-green-100'}`}>
+                                        {item.type === 'owe' ? <ArrowDownLeft className="w-5 h-5" /> : <ArrowUpRight className="w-5 h-5" />}
+                                    </div>
+                                    <div>
+                                        <p className="font-bold text-gray-900">{item.title}</p>
+                                        <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mt-0.5">{item.date}</p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <p className="font-bold text-gray-900">{item.title}</p>
-                                    <p className="text-sm text-gray-400 font-medium">{item.date}</p>
+                                <div className="text-right">
+                                    <p className={`font-black text-lg ${item.type === 'owe' ? 'text-gray-900' : 'text-green-600'}`}>
+                                        {item.type === 'owe' ? '-' : '+'}{item.amount}
+                                    </p>
+                                    <div className="flex items-center justify-end gap-1.5 mt-1">
+                                        <span className={`text-[9px] uppercase font-black px-2 py-0.5 rounded ${item.status === 'Paid' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                            {item.status}
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
-                            <div className="text-right">
-                                <p className={`font-black ${item.type === 'owe' ? 'text-gray-900' : 'text-green-600'}`}>
-                                    {item.type === 'owe' ? '-' : '+'}{item.amount}
-                                </p>
-                                <span className={`text-[10px] uppercase font-black px-2 py-0.5 rounded ${item.status === 'Paid' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                                    {item.status}
-                                </span>
-                            </div>
+                        ))
+                    ) : (
+                        <div className="glass-card p-12 text-center text-gray-400 font-bold italic">
+                            {searchTerm ? 'No activities match your search.' : 'No activity history found.'}
                         </div>
-                    ))}
+                    )}
                 </div>
-            </main>
+            </div>
         </div>
     );
 };

@@ -1,6 +1,6 @@
-import React from 'react';
-import { useState } from 'react';
+import React, { useState } from 'react';
 import toast from 'react-hot-toast';
+import type { RegisterData } from '../types';
 import { Mail, Lock, Eye, EyeOff, User, ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -8,7 +8,7 @@ const RegisterPage: React.FC = () => {
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [fieldErrors, setFieldErrors] = useState<{ [key: string]: string }>({});
-    const [formData, setFormData] = useState({
+    const [formData, setFormData] = useState<RegisterData>({
         firstName: '',
         lastName: '',
         nickname: '',
@@ -40,8 +40,14 @@ const RegisterPage: React.FC = () => {
         }
         if (!formData.password) {
             errors.password = 'Password is required';
-        } else if (formData.password.length < 6) {
-            errors.password = 'Password must be at least 6 characters';
+        } else if (formData.password.length < 8) {
+            errors.password = 'Password must be at least 8 characters';
+        } else if (!formData.password.match(/[A-Z]/)) {
+            errors.password = 'Password must contain at least one uppercase letter';
+        } else if (!formData.password.match(/[0-9]/)) {
+            errors.password = 'Password must contain at least one number';
+        } else if (!formData.password.match(/[^A-Za-z0-9]/)) {
+            errors.password = 'Password must contain at least one special character';
         }
         if (!formData.confirmPassword) {
             errors.confirmPassword = 'Please confirm your password';

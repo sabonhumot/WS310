@@ -85,9 +85,9 @@ const LoginPage: React.FC = () => {
                                 <label className="block text-sm font-semibold text-gray-700" htmlFor="password">
                                     Password
                                 </label>
-                                <a href="#" className="text-sm font-semibold text-indigo-600 hover:text-indigo-500 transition-colors">
+                                <Link to="/forgot-password" className="text-sm font-semibold text-indigo-600 hover:text-indigo-500 transition-colors">
                                     Forgot password?
-                                </a>
+                                </Link>
                             </div>
                             <div className="relative group">
                                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400 group-focus-within:text-indigo-600 transition-colors">

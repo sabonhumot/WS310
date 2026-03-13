@@ -44,6 +44,19 @@ const initializeTables = async (connection: any) => {
             )
         `);
 
+        // Guest users table
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS guest_users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                first_name VARCHAR(255) NOT NULL,
+                last_name VARCHAR(255) NOT NULL,
+                nickname VARCHAR(255) NOT NULL,
+                email VARCHAR(255),
+                phone VARCHAR(20),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
         // Involved persons (can be registered or guest users)
         await connection.query(`
             CREATE TABLE IF NOT EXISTS involved_persons (
@@ -58,18 +71,6 @@ const initializeTables = async (connection: any) => {
             )
         `);
 
-        // Guest users table
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS guest_users (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                first_name VARCHAR(255) NOT NULL,
-                last_name VARCHAR(255) NOT NULL,
-                email VARCHAR(255),
-                phone VARCHAR(20),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        `);
-
         // Expenses table
         await connection.query(`
             CREATE TABLE IF NOT EXISTS expenses (
@@ -79,6 +80,7 @@ const initializeTables = async (connection: any) => {
                 total_amount DECIMAL(10, 2) NOT NULL,
                 paid_by_user_id INT,
                 paid_by_guest_id INT,
+                split_type ENUM('equally', 'custom') DEFAULT 'equally',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (bill_id) REFERENCES bills(id) ON DELETE CASCADE,
                 FOREIGN KEY (paid_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
@@ -97,6 +99,18 @@ const initializeTables = async (connection: any) => {
                 FOREIGN KEY (expense_id) REFERENCES expenses(id) ON DELETE CASCADE,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
                 FOREIGN KEY (guest_user_id) REFERENCES guest_users(id) ON DELETE SET NULL
+            )
+        `);
+
+        // Password resets table
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS password_resets (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                token VARCHAR(255) NOT NULL,
+                expires_at TIMESTAMP NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )
         `);
 
