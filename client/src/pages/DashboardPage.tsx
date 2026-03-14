@@ -1,16 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-    LayoutDashboard,
     ArrowUpRight,
     ArrowDownLeft,
     Users,
-    History,
-    Bell,
-    Settings,
     PlusCircle,
-    ChevronRight,
-    TrendingUp
+    ChevronRight
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 

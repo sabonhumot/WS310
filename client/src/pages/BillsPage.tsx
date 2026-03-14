@@ -12,24 +12,39 @@ import {
     UserPlus,
     Search,
     DollarSign,
-    User
+    Plus
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 import type { Bill, InvolvedPerson, Expense, GuestData } from '../types';
+import { useNavigate } from 'react-router-dom';
 
 const BillsPage: React.FC = () => {
-    const { user } = useAuth();
+    const { user, guestUser, login, logoutGuest, isLoading } = useAuth();
+    const navigate = useNavigate();
     const [bills, setBills] = useState<Bill[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
     const [showAddModal, setShowAddModal] = useState(false);
     const [showViewModal, setShowViewModal] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
+    const [showSettleModal, setShowSettleModal] = useState(false);
+    
+    // Guest Upgrade State
+    const [showGuestUpgradeModal, setShowGuestUpgradeModal] = useState(false);
+    const [guestUpgradeForm, setGuestUpgradeForm] = useState({
+        username: '',
+        password: '',
+        confirmPassword: ''
+    });
+    const [isUpgradingGuest, setIsUpgradingGuest] = useState(false);
+
+    const CACHE_KEY = "bills_page_data";
     const [editingBill, setEditingBill] = useState<Bill | null>(null);
     const [billDetails, setBillDetails] = useState<{ involvedPersons: InvolvedPerson[], expenses: Expense[] } | null>(null);
     const [newBillName, setNewBillName] = useState('');
     const [inviteCode, setInviteCode] = useState('');
+    const [showAddPersonToExpenseModal, setShowAddPersonToExpenseModal] = useState(false);
     
     // Involved Persons Logic
     const [searchQuery, setSearchQuery] = useState('');
@@ -76,6 +91,37 @@ const BillsPage: React.FC = () => {
         }
     }, [showAddModal, user]);
 
+    useEffect(() => {
+        if (isLoading) return;
+        
+        // Handle guest session expiry tracking
+        let expiryInterval: any;
+        if (guestUser?.expiry) {
+            const checkExpiry = () => {
+                const now = new Date().getTime();
+                if (now > guestUser.expiry!) {
+                    toast.error("Your guest session has expired. Please log in or join again.");
+                    logoutGuest();
+                    navigate('/');
+                }
+            };
+            
+            checkExpiry(); // Check immediately
+            expiryInterval = setInterval(checkExpiry, 60000); // Check every minute
+        }
+
+        if (!user && !guestUser) {
+            navigate('/login');
+            return;
+        }
+
+        return () => {
+            if (expiryInterval) {
+                clearInterval(expiryInterval);
+            }
+        };
+    }, [isLoading, guestUser, user, logoutGuest, navigate]);
+
     const handleSearchUsers = async (query: string) => {
         setSearchQuery(query);
         if (query.trim().length < 2) {
@@ -91,11 +137,42 @@ const BillsPage: React.FC = () => {
         }
     };
 
-    const addPersonToBill = (person: any) => {
-        if (involvedPersons.some(p => p.user_id === person.id)) {
+    const addPersonToBill = async (person: any) => {
+        const isGuest = person.is_guest === 1;
+        if (involvedPersons.some(p => (isGuest ? p.id === person.id && p.is_guest : p.user_id === person.id && !p.is_guest))) {
             toast.error('Person already added');
             return;
         }
+
+        if (selectedBill) {
+            try {
+                const response = await fetch(`http://localhost:5001/api/bills/${selectedBill.id}/involved-persons`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        [isGuest ? 'guest_user_id' : 'user_id']: person.id,
+                        created_by: user?.id
+                    })
+                });
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.message || 'Failed to add person');
+                }
+                await response.json();
+                
+                // Refresh bill details
+                handleViewBill(selectedBill);
+                toast.success('Person added to bill');
+                setSearchQuery('');
+                setSearchResults([]);
+                setShowAddPersonToExpenseModal(false);
+                return;
+            } catch (error: any) {
+                toast.error(error.message);
+                return;
+            }
+        }
+
         setInvolvedPersons([...involvedPersons, {
             id: person.id,
             nickname: person.nickname,
@@ -109,7 +186,7 @@ const BillsPage: React.FC = () => {
         setSearchResults([]);
     };
 
-    const addGuestToBill = () => {
+    const addGuestToBill = async () => {
         if (!guestData.firstName || !guestData.lastName || !guestData.nickname || !guestData.email) {
             toast.error('Please fill in all guest fields');
             return;
@@ -118,6 +195,39 @@ const BillsPage: React.FC = () => {
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guestData.email)) {
             toast.error('Invalid email format');
             return;
+        }
+
+        if (selectedBill) {
+            try {
+                const response = await fetch(`http://localhost:5001/api/bills/${selectedBill.id}/involved-persons`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        guest_data: {
+                            first_name: guestData.firstName,
+                            last_name: guestData.lastName,
+                            email: guestData.email,
+                            nickname: guestData.nickname
+                        },
+                        created_by: user?.id
+                    })
+                });
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.message || 'Failed to add guest');
+                }
+
+                // Refresh bill details
+                handleViewBill(selectedBill);
+                toast.success('Guest added to bill');
+                setGuestData({ firstName: '', lastName: '', nickname: '', email: '' });
+                setShowGuestForm(false);
+                setShowAddPersonToExpenseModal(false);
+                return;
+            } catch (error: any) {
+                toast.error(error.message);
+                return;
+            }
         }
 
         const guestId = `guest_${Date.now()}`;
@@ -134,11 +244,17 @@ const BillsPage: React.FC = () => {
     };
 
     const fetchBills = async () => {
-        if (!user) return;
+        if (!user && !guestUser) return;
         try {
-            const response = await fetch(`http://localhost:5001/api/bills/${user.id}`);
-            const data = await response.json();
-            setBills(data.bills || []);
+            if (user) {
+                const response = await fetch(`http://localhost:5001/api/bills/${user.id}`);
+                const data = await response.json();
+                setBills(data.bills || []);
+            } else if (guestUser) {
+                const response = await fetch(`http://localhost:5001/api/guests/${guestUser.id}/bills`);
+                const data = await response.json();
+                setBills(data.bills || []);
+            }
         } catch (error) {
             console.error('Error fetching bills:', error);
             toast.error('Failed to load bills');
@@ -149,7 +265,7 @@ const BillsPage: React.FC = () => {
 
     useEffect(() => {
         fetchBills();
-    }, [user]);
+    }, [user, guestUser]);
 
     const handleCreateBill = async () => {
         if (!user || !newBillName.trim()) {
@@ -286,24 +402,102 @@ const BillsPage: React.FC = () => {
     };
 
     const copyInviteCode = (code: string) => {
-        navigator.clipboard.writeText(code);
-        toast.success('Invite code copied to clipboard');
+        const fullLink = `${window.location.origin}/invite?code=${code}`;
+        navigator.clipboard.writeText(fullLink);
+        toast.success("Invitation link copied to clipboard");
     };
+
+    const handleGuestUpgrade = async (e: React.FormEvent) => {
+        e.preventDefault();
+        
+        if (guestUpgradeForm.password !== guestUpgradeForm.confirmPassword) {
+            toast.error("Passwords do not match");
+            return;
+        }
+
+        if (guestUpgradeForm.password.length < 8) {
+            toast.error("Password must be at least 8 characters");
+            return;
+        }
+
+        setIsUpgradingGuest(true);
+
+        try {
+            const response = await fetch(`http://localhost:5001/api/users/upgrade-guest`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    guest_id: guestUser?.id,
+                    first_name: guestUser?.first_name,
+                    last_name: guestUser?.last_name,
+                    email: guestUser?.email,
+                    username: guestUpgradeForm.username,
+                    password: guestUpgradeForm.password
+                })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                toast.error(data.message || "Failed to upgrade guest account");
+                setIsUpgradingGuest(false);
+                return;
+            }
+
+            // Success! Upgrade the user session
+            toast.success("Account created successfully! You are now a registered user.");
+            setShowGuestUpgradeModal(false);
+            
+            // Re-login as the real user
+            login(data.user);
+            
+        } catch (error: any) {
+            toast.error(error.message || "Internal server error");
+            setIsUpgradingGuest(false);
+        }
+    };
+
+    const isGuestLoggedIn = !!guestUser;
 
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-            <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            {/* Header */}
+            <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white/50 p-6 rounded-2xl shadow-sm border border-gray-50/50 backdrop-blur-xl group">
                 <div>
-                    <h1 className="text-3xl font-black text-gray-900">Bills</h1>
-                    <p className="text-gray-500 font-medium">Manage and split your bills with ease</p>
+                    <h1 className="text-3xl font-black tracking-tight text-gray-900 group-hover:bg-gradient-to-r group-hover:from-indigo-600 group-hover:to-purple-600 group-hover:text-transparent group-hover:bg-clip-text transition-all duration-300">
+                        {isGuestLoggedIn ? "Guest Access" : "Bills & Expenses"}
+                    </h1>
+                    <p className="text-sm font-bold text-gray-500 mt-1 flex items-center gap-2">
+                        {isGuestLoggedIn ? (
+                            <>
+                                <span className="inline-block w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
+                                Temporary session ({Math.round(Math.max(0, ((guestUser?.expiry || 0) - new Date().getTime()) / (1000 * 60 * 60)))} hours remaining)
+                            </>
+                        ) : (
+                            <>
+                                <span className="inline-block w-2 h-2 rounded-full bg-indigo-500"></span>
+                                Manage your shared expenses and settlements
+                            </>
+                        )}
+                    </p>
                 </div>
-                <button
-                    onClick={() => setShowAddModal(true)}
-                    className="premium-button py-3 px-6 rounded-xl flex items-center gap-2 whitespace-nowrap"
-                >
-                    <PlusCircle className="w-5 h-5" />
-                    Create Bill
-                </button>
+                {!isGuestLoggedIn && (
+                    <button 
+                        onClick={() => setShowAddModal(true)}
+                        className="primary-button group"
+                    >
+                        <Plus size={20} className="group-hover:rotate-90 transition-transform duration-300" />
+                        Create New Bill
+                    </button>
+                )}
+                {isGuestLoggedIn && (
+                    <button 
+                        onClick={() => setShowGuestUpgradeModal(true)}
+                        className="px-6 py-3 bg-gradient-to-r from-orange-500 to-amber-500 text-white font-black uppercase tracking-widest rounded-xl hover:from-orange-600 hover:to-amber-600 transition-all text-sm shadow-lg shadow-orange-200"
+                    >
+                        Upgrade Account
+                    </button>
+                )}
             </header>
 
             {loading ? (
@@ -339,17 +533,21 @@ const BillsPage: React.FC = () => {
                                     </p>
                                 </div>
                                 <div className="flex gap-1">
-                                    <button
-                                        onClick={() => {
-                                            setEditingBill(bill);
-                                            setNewBillName(bill.bill_name);
-                                            setShowEditModal(true);
-                                        }}
-                                        className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
-                                        title="Edit"
-                                    >
-                                        <Edit2 size={18} />
-                                    </button>
+                                    {bill.created_by === user?.id && (
+                                        <>
+                                            <button
+                                                onClick={() => {
+                                                    setEditingBill(bill);
+                                                    setNewBillName(bill.bill_name);
+                                                    setShowEditModal(true);
+                                                }}
+                                                className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                                                title="Edit"
+                                            >
+                                                <Edit2 size={18} />
+                                            </button>
+                                        </>
+                                    )}
                                     <button
                                         onClick={() => handleViewBill(bill)}
                                         className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-all"
@@ -357,20 +555,24 @@ const BillsPage: React.FC = () => {
                                     >
                                         <Eye size={18} />
                                     </button>
-                                    <button
-                                        onClick={() => handleArchiveBill(bill.id)}
-                                        className="p-2 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-all"
-                                        title="Archive"
-                                    >
-                                        <Archive size={18} />
-                                    </button>
-                                    <button
-                                        onClick={() => handleDeleteBill(bill.id)}
-                                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                                        title="Delete"
-                                    >
-                                        <Trash2 size={18} />
-                                    </button>
+                                    {bill.created_by === user?.id && (
+                                        <>
+                                            <button
+                                                onClick={() => handleArchiveBill(bill.id)}
+                                                className="p-2 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-all"
+                                                title="Archive"
+                                            >
+                                                <Archive size={18} />
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeleteBill(bill.id)}
+                                                className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                                title="Delete"
+                                            >
+                                                <Trash2 size={18} />
+                                            </button>
+                                        </>
+                                    )}
                                 </div>
                             </div>
 
@@ -603,13 +805,24 @@ const BillsPage: React.FC = () => {
                                 <h2 className="text-2xl font-black text-gray-900">{selectedBill.bill_name}</h2>
                             </div>
                             <div className="flex items-center gap-2">
-                                <button 
-                                    onClick={() => setShowExpenseModal(true)}
-                                    className="px-4 py-2 bg-indigo-600 text-white text-xs font-black uppercase tracking-widest rounded-lg flex items-center gap-2 hover:bg-indigo-700 transition-all"
-                                >
-                                    <DollarSign size={14} />
-                                    Add Expense
-                                </button>
+                                {selectedBill.created_by === user?.id && (
+                                    <button 
+                                        onClick={() => {
+                                            setNewExpense({
+                                                name: '',
+                                                amount: '',
+                                                paidBy: user?.id || '',
+                                                splitType: 'equally',
+                                                splitWith: billDetails.involvedPersons.map(p => p.id)
+                                            });
+                                            setShowExpenseModal(true);
+                                        }}
+                                        className="px-4 py-2 bg-indigo-600 text-white text-xs font-black uppercase tracking-widest rounded-lg flex items-center gap-2 hover:bg-indigo-700 transition-all"
+                                    >
+                                        <DollarSign size={14} />
+                                        Add Expense
+                                    </button>
+                                )}
                                 <button onClick={() => setShowViewModal(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
                                     <X size={24} className="text-gray-400" />
                                 </button>
@@ -619,7 +832,114 @@ const BillsPage: React.FC = () => {
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                             <div className="lg:col-span-1 space-y-8">
                                 <section>
-                                    <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Involved Persons</h3>
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Involved Persons</h3>
+                                        {selectedBill.created_by === user?.id && (
+                                            <button 
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    setShowAddPersonToExpenseModal(!showAddPersonToExpenseModal);
+                                                }}
+                                                className="text-[10px] font-black text-indigo-600 uppercase tracking-widest flex items-center gap-1 hover:underline"
+                                            >
+                                                <UserPlus size={12} />
+                                                {showAddPersonToExpenseModal ? 'Cancel' : 'Add Person'}
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {showAddPersonToExpenseModal && (
+                                        <div className="mb-4 p-4 bg-gray-50 rounded-xl border border-gray-100 space-y-4 animate-in slide-in-from-top-2">
+                                            <div className="flex justify-between items-center">
+                                                <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Add New Person</h4>
+                                                <button 
+                                                    onClick={(e) => {
+                                                        e.preventDefault();
+                                                        setShowGuestForm(!showGuestForm);
+                                                    }}
+                                                    className="text-[10px] font-bold text-indigo-600 hover:underline"
+                                                >
+                                                    {showGuestForm ? 'Search Users instead' : 'Invite New Guest'}
+                                                </button>
+                                            </div>
+
+                                            <div className="flex justify-end mt-2">
+                                                <button
+                                                    onClick={(e) => { e.preventDefault(); copyInviteCode(selectedBill.invite_code); }}
+                                                    className="text-xs font-black text-indigo-600 flex items-center justify-center gap-1 hover:text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100 transition-all w-full mb-3"
+                                                >
+                                                    <Copy size={12} />
+                                                    Copy Invitation Link to Share
+                                                </button>
+                                            </div>
+
+                                            {showGuestForm ? (
+                                                <div className="space-y-3">
+                                                    <div className="grid grid-cols-2 gap-3">
+                                                        <input placeholder="First Name" className="px-3 py-2 text-sm bg-white border border-gray-100 rounded-lg outline-indigo-500" value={guestData.firstName} onChange={e => setGuestData({ ...guestData, firstName: e.target.value })} />
+                                                        <input placeholder="Last Name" className="px-3 py-2 text-sm bg-white border border-gray-100 rounded-lg outline-indigo-500" value={guestData.lastName} onChange={e => setGuestData({ ...guestData, lastName: e.target.value })} />
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-3">
+                                                        <input placeholder="Nickname" className="px-3 py-2 text-sm bg-white border border-gray-100 rounded-lg outline-indigo-500" value={guestData.nickname} onChange={e => setGuestData({ ...guestData, nickname: e.target.value })} />
+                                                        <input placeholder="Email" className="px-3 py-2 text-sm bg-white border border-gray-100 rounded-lg outline-indigo-500" value={guestData.email} onChange={e => setGuestData({ ...guestData, email: e.target.value })} />
+                                                    </div>
+                                                    <button 
+                                                        onClick={(e) => {
+                                                            e.preventDefault();
+                                                            addGuestToBill();
+                                                        }}
+                                                        className="w-full py-2 bg-gray-900 text-white text-sm font-bold rounded-lg hover:bg-gray-800 transition-all"
+                                                    >
+                                                        Add Guest to Bill
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <div className="relative">
+                                                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                                                        <Search size={14} />
+                                                    </div>
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Search registered users..."
+                                                        value={searchQuery}
+                                                        onChange={(e) => handleSearchUsers(e.target.value)}
+                                                        className="w-full pl-9 pr-3 py-2 bg-white border border-gray-100 rounded-lg outline-indigo-500 text-sm"
+                                                    />
+                                                    {searchResults.length > 0 && (
+                                                        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-100 rounded-lg shadow-xl z-20 max-h-40 overflow-y-auto p-1 space-y-1">
+                                                            {searchResults.map(u => (
+                                                                <button key={u.id} onClick={(e) => { e.preventDefault(); addPersonToBill(u); }} className="w-full text-left p-2 hover:bg-indigo-50 rounded flex items-center gap-2">
+                                                                    <div className="w-6 h-6 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-bold text-[10px] uppercase">{u.nickname[0]}</div>
+                                                                    <div>
+                                                                        <p className="text-xs font-bold text-gray-900">{u.nickname}</p>
+                                                                        <p className="text-[10px] text-gray-400">
+                                                                            {u.is_guest === 1 ? (
+                                                                                <span className="text-orange-500 font-bold bg-orange-50 px-1 rounded mr-1">Guest</span>
+                                                                            ) : (
+                                                                                `@${u.username}`
+                                                                            )}
+                                                                        </p>
+                                                                    </div>
+                                                                </button>
+                                                            ))}
+                                                            {searchQuery.trim().length >= 2 && searchResults.length === 0 && (
+                                                                <div className="p-3 text-center space-y-2">
+                                                                    <p className="text-xs text-gray-500 font-medium">No users found.</p>
+                                                                    <button 
+                                                                        onClick={(e) => { e.preventDefault(); setShowGuestForm(true); setSearchQuery(''); }}
+                                                                        className="text-xs font-bold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg w-full hover:bg-indigo-100 transition-colors"
+                                                                    >
+                                                                        Invite "{searchQuery}" as New Guest
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
                                     <div className="space-y-2">
                                         {billDetails.involvedPersons.map((person: InvolvedPerson) => (
                                             <div key={person.id} className="bg-gray-50 p-3 rounded-xl border border-gray-100 flex items-center gap-3">
@@ -801,6 +1121,76 @@ const BillsPage: React.FC = () => {
                                 </button>
                             </div>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {showGuestUpgradeModal && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[500] p-4 animate-in fade-in duration-300">
+                    <div className="bg-white rounded-2xl p-8 w-full max-w-md shadow-2xl animate-in scale-in-95 duration-300">
+                        <div className="text-center mb-6">
+                            <div className="w-16 h-16 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <UserPlus size={32} />
+                            </div>
+                            <h2 className="text-2xl font-black text-gray-900">Upgrade to Full Account</h2>
+                            <p className="text-sm font-bold text-gray-500 mt-2">Create a registered account to keep access to your bills forever and split expenses across multiple groups.</p>
+                        </div>
+                        
+                        <form onSubmit={handleGuestUpgrade} className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Username</label>
+                                <input
+                                    type="text"
+                                    required
+                                    value={guestUpgradeForm.username}
+                                    onChange={(e) => setGuestUpgradeForm({...guestUpgradeForm, username: e.target.value})}
+                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-indigo-500 font-bold"
+                                    placeholder="Choose a username"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Password</label>
+                                <input
+                                    type="password"
+                                    required
+                                    value={guestUpgradeForm.password}
+                                    onChange={(e) => setGuestUpgradeForm({...guestUpgradeForm, password: e.target.value})}
+                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-indigo-500 font-bold"
+                                    placeholder="••••••••"
+                                    minLength={8}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Confirm Password</label>
+                                <input
+                                    type="password"
+                                    required
+                                    value={guestUpgradeForm.confirmPassword}
+                                    onChange={(e) => setGuestUpgradeForm({...guestUpgradeForm, confirmPassword: e.target.value})}
+                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-indigo-500 font-bold"
+                                    placeholder="••••••••"
+                                    minLength={8}
+                                />
+                            </div>
+                            
+                            <div className="flex gap-3 pt-6 border-t border-gray-50 mt-6">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowGuestUpgradeModal(false)}
+                                    className="flex-1 py-4 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition-all text-sm"
+                                >
+                                    Later
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={isUpgradingGuest}
+                                    className="flex-1 py-4 bg-orange-500 text-white font-bold rounded-xl hover:bg-orange-600 transition-all shadow-lg shadow-orange-100 disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm uppercase tracking-widest"
+                                >
+                                    {isUpgradingGuest && <RefreshCcw className="w-4 h-4 animate-spin" />}
+                                    {isUpgradingGuest ? 'Upgrading...' : 'Upgrade Now'}
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}

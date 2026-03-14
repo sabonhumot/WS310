@@ -1,6 +1,6 @@
-import type React from "react";
-import { Routes, Route, Navigate } from 'react-router-dom';
-import { Toaster } from 'react-hot-toast';
+import React from "react";
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import toast, { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Navbar from './components/common/Navbar.tsx';
 import LoginPage from './pages/LoginPage.tsx';
@@ -14,10 +14,37 @@ import BillsPage from './pages/BillsPage.tsx';
 import ArchivePage from './pages/ArchivePage.tsx';
 import ForgotPasswordPage from './pages/ForgotPasswordPage.tsx';
 import ResetPasswordPage from './pages/ResetPasswordPage.tsx';
+import InvitePage from './pages/InvitePage.tsx';
 import DashboardLayout from './components/common/DashboardLayout.tsx';
-import { Users, Check, CheckCircle2 } from 'lucide-react';
+import { Users, Check, CheckCircle2, ArrowRight } from 'lucide-react';
 
 const Landing: React.FC = () => {
+    const navigate = useNavigate();
+    const [inviteCode, setInviteCode] = React.useState('');
+
+    const [isChecking, setIsChecking] = React.useState(false);
+
+    const handleJoinCode = async (e: React.FormEvent) => {
+        e.preventDefault();
+        const code = inviteCode.trim();
+        if (!code) return;
+
+        setIsChecking(true);
+        try {
+            const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+            const response = await fetch(`${API_URL}/bills/invite/${code}`);
+            
+            if (response.ok) {
+                navigate(`/invite?code=${code}`);
+            } else {
+                toast.error("Invalid invitation code. Please try again.");
+            }
+        } catch (error) {
+            toast.error("Error verifying code. Please check your connection.");
+        } finally {
+            setIsChecking(false);
+        }
+    };
     return (
         <div className="min-h-screen">
             <Navbar />
@@ -41,6 +68,27 @@ const Landing: React.FC = () => {
                                 <CheckCircle2 className="w-5 h-5 text-green-500" />
                                 Accurate results
                             </div>
+                        </div>
+
+                        <div className="pt-8 border-t border-gray-100 pb-2">
+                            <p className="text-sm font-bold text-gray-900 mb-3">Have an invite code?</p>
+                            <form onSubmit={handleJoinCode} className="flex gap-2 max-w-md">
+                                <input
+                                    type="text"
+                                    placeholder="Enter invite code"
+                                    value={inviteCode}
+                                    onChange={(e) => setInviteCode(e.target.value)}
+                                    className="flex-1 px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all text-sm font-bold"
+                                />
+                                <button
+                                    type="submit"
+                                    disabled={!inviteCode.trim() || isChecking}
+                                    className="px-6 py-3 bg-gray-900 hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2 text-sm whitespace-nowrap"
+                                >
+                                    {isChecking ? 'Checking...' : 'Join'}
+                                    {!isChecking && <ArrowRight size={16} />}
+                                </button>
+                            </form>
                         </div>
                     </div>
 
@@ -105,6 +153,20 @@ const Landing: React.FC = () => {
     );
 };
 
+const PublicRoute: React.FC<{ element: React.ReactNode }> = ({ element }) => {
+    const { isLoggedIn, isLoading } = useAuth();
+
+    if (isLoading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+            </div>
+        );
+    }
+
+    return !isLoggedIn ? element : <Navigate to="/dashboard" replace />;
+};
+
 const ProtectedRoute: React.FC<{ element: React.ReactNode }> = ({ element }) => {
     const { isLoggedIn, isLoading } = useAuth();
 
@@ -119,26 +181,45 @@ const ProtectedRoute: React.FC<{ element: React.ReactNode }> = ({ element }) => 
     return isLoggedIn ? element : <Navigate to="/login" replace />;
 };
 
+const GuestRoute: React.FC<{ element: React.ReactNode }> = ({ element }) => {
+    const { isLoggedIn, isGuestLoggedIn, isLoading } = useAuth();
+
+    if (isLoading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+            </div>
+        );
+    }
+
+    return (isLoggedIn || isGuestLoggedIn) ? element : <Navigate to="/login" replace />;
+};
+
 const AppContent: React.FC = () => {
     return (
         <div className="min-h-screen">
             <Toaster position="top-right" />
             <Routes>
-                <Route path="/" element={<Landing />} />
-                <Route path="/login" element={<><Navbar /><LoginPage /></>} />
-                <Route path="/register" element={<><Navbar /><RegisterPage /></>} />
-                <Route path="/verify" element={<><Navbar /><VerifyPage /></>} />
-                <Route path="/forgot-password" element={<><Navbar /><ForgotPasswordPage /></>} />
-                <Route path="/reset-password" element={<><Navbar /><ResetPasswordPage /></>} />
+                <Route path="/" element={<PublicRoute element={<Landing />} />} />
+                <Route path="/login" element={<PublicRoute element={<><Navbar /><LoginPage /></>} />} />
+                <Route path="/register" element={<PublicRoute element={<><Navbar /><RegisterPage /></>} />} />
+                <Route path="/verify" element={<PublicRoute element={<><Navbar /><VerifyPage /></>} />} />
+                <Route path="/forgot-password" element={<PublicRoute element={<><Navbar /><ForgotPasswordPage /></>} />} />
+                <Route path="/reset-password" element={<PublicRoute element={<><Navbar /><ResetPasswordPage /></>} />} />
+                <Route path="/invite" element={<><Navbar /><InvitePage /></>} />
                 
                 {/* Protected Routes with DashboardLayout */}
                 <Route element={<ProtectedRoute element={<DashboardLayout />} />}>
                     <Route path="/dashboard" element={<DashboardPage />} />
-                    <Route path="/bills" element={<BillsPage />} />
                     <Route path="/archive" element={<ArchivePage />} />
                     <Route path="/activity" element={<ActivityPage />} />
                     <Route path="/groups" element={<GroupsPage />} />
                     <Route path="/settings" element={<SettingsPage />} />
+                </Route>
+
+                {/* Guest-Allowed Routes with DashboardLayout */}
+                <Route element={<GuestRoute element={<DashboardLayout />} />}>
+                    <Route path="/bills" element={<BillsPage />} />
                 </Route>
             </Routes>
         </div>

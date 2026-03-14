@@ -117,19 +117,6 @@ const GroupsPage: React.FC = () => {
                 </div>
             )}
             
-            <div className="bg-indigo-900 rounded-3xl p-8 text-white relative overflow-hidden shadow-2xl shadow-indigo-200">
-                <div className="relative z-10">
-                    <h2 className="text-2xl font-black mb-2">Pro Tip: Simplify Settlements</h2>
-                    <p className="text-indigo-200 font-medium max-w-lg mb-6">Groups are best for recurring expenses like rent, utilities, and grocery runs. Keep everyone in the loop effortlessly.</p>
-                    <button 
-                        onClick={() => navigate('/bills')}
-                        className="bg-white text-indigo-900 px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs hover:bg-indigo-50 transition-all"
-                    >
-                        Get Started
-                    </button>
-                </div>
-                <Users className="absolute -right-10 -bottom-10 w-64 h-64 text-white/5 rotate-12" />
-            </div>
         </div>
     );
 };

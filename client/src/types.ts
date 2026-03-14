@@ -9,12 +9,25 @@ export interface User {
     email_verified: number;
 }
 
+export interface GuestUser {
+    id: number;
+    first_name: string;
+    last_name: string;
+    nickname: string;
+    email: string;
+    is_guest: boolean;
+    expiry?: number;
+}
 export interface AuthContextType {
     user: User | null;
+    guestUser: GuestUser | null;
     isLoading: boolean;
     login: (user: User) => void;
     logout: () => void;
+    loginGuest: (guest: GuestUser) => void;
+    logoutGuest: () => void;
     isLoggedIn: boolean;
+    isGuestLoggedIn: boolean;
 }
 
 export interface LoginData {

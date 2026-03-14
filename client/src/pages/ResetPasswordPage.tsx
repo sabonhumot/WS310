@@ -74,7 +74,7 @@ const ResetPasswordPage: React.FC = () => {
                         <p className="text-gray-500 mb-8 font-medium">
                             This password reset link is invalid or has expired. Please request a new one.
                         </p>
-                        <Link to="/forgot-password" size="18" className="premium-button py-3 px-6 rounded-xl inline-flex">
+                        <Link to="/forgot-password" className="premium-button py-3 px-6 rounded-xl inline-flex">
                             Request New Link
                         </Link>
                     </div>
