@@ -227,10 +227,10 @@ const generateInviteCode = () => {
 // Helper function to enrich bills with expenses and involved persons data
 async function enrichBills(billsToEnrich: any[]) {
     return Promise.all(billsToEnrich.map(async (b) => {
-        const [[{cnt}]] = await db.query("SELECT COUNT(*) as cnt FROM expenses WHERE bill_id = ?", [b.id]) as any[];
-        
+        const [[{ cnt }]] = await db.query("SELECT COUNT(*) as cnt FROM expenses WHERE bill_id = ?", [b.id]) as any[];
+
         const [recent] = await db.query("SELECT expense_name as name, total_amount as amount FROM expenses WHERE bill_id = ? ORDER BY created_at DESC LIMIT 2", [b.id]) as any[];
-        
+
         const [inv] = await db.query(`
             SELECT COALESCE(u.nickname, u.first_name, g.nickname, g.first_name) as name 
             FROM involved_persons ip 
@@ -626,12 +626,12 @@ app.put("/api/expenses/:expenseId", async (req: Request, res: Response) => {
 
         // Re-insert new splits
         const splitAmount = split_type === 'equally' ? total_amount / split_with.length : 0;
-        
+
         for (const personId of split_with) {
             const isGuestSplit = typeof personId === 'string' && personId.startsWith('guest_');
             const splitUserId = isGuestSplit ? null : personId;
             const splitGuestId = isGuestSplit ? parseInt(personId.replace('guest_', '')) : null;
-            
+
             await db.query(
                 "INSERT INTO expense_splits (expense_id, user_id, guest_user_id, amount) VALUES (?, ?, ?, ?)",
                 [expenseId, splitUserId, splitGuestId, splitAmount]
@@ -1130,6 +1130,27 @@ app.put("/api/users/:userId", async (req: Request, res: Response) => {
     }
 });
 
+// Upgrade user to Premium
+app.put("/api/users/:userId/upgrade-premium", async (req: Request, res: Response) => {
+    const { userId } = req.params;
+
+    try {
+        await db.query("UPDATE users SET user_type_id = 2 WHERE id = ?", [userId]);
+
+        const [users] = await db.query("SELECT * FROM users WHERE id = ?", [userId]) as any[];
+
+        if (users.length === 0) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        const { password_hash, ...userWithoutPassword } = users[0];
+        res.status(200).json({ message: "Upgraded to Premium successfully!", user: userWithoutPassword });
+    } catch (error: any) {
+        console.error("Error upgrading user to premium:", error.message);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
 // Change user password
 app.put("/api/users/:userId/password", async (req: Request, res: Response) => {
     const { userId } = req.params;
@@ -1353,7 +1374,7 @@ async function getDebtActivity(userId: string) {
         settlements.forEach((s: any) => {
             const payerId = String(s.paid_by_guest_id ? `guest_${s.paid_by_guest_id}` : s.paid_by_user_id);
             const payeeId = String(s.paid_to_guest_id ? `guest_${s.paid_to_guest_id}` : s.paid_to_user_id);
-            
+
             // If the user participated in this settlement
             if (payerId === currentUserIdStr || payeeId === currentUserIdStr) {
                 const isPayer = payerId === currentUserIdStr;
@@ -1385,12 +1406,12 @@ app.get("/api/dashboard/:userId", async (req: Request, res: Response) => {
     try {
         // 1. Calculate stats (Dynamic now!)
         const activity = await getDebtActivity(userId as string);
-        
+
         // Owed to you: sum of 'lent' with 'Pending' status
         const dynamicOwedToYou = activity
             .filter(item => item.type === 'lent' && item.status === 'Pending')
             .reduce((sum, item) => sum + (item.rawAmount || 0), 0);
-            
+
         // You owe: sum of 'owe' with 'Pending' status
         const dynamicYouOwe = activity
             .filter(item => item.type === 'owe' && item.status === 'Pending')

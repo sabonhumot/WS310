@@ -57,7 +57,7 @@ const LoginPage: React.FC = () => {
             navigate('/dashboard');
         } catch (err: unknown) {
             const errorMsg = err instanceof Error ? err.message : "An error occurred";
-            toast.error(errorMsg);
+            // toast.error(errorMsg);
             
             if (errorMsg.toLowerCase().includes('username') || errorMsg.toLowerCase().includes('password')) {
                 setFieldErrors({ username: errorMsg, password: errorMsg });

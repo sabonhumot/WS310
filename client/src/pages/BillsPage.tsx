@@ -33,7 +33,7 @@ const BillsPage: React.FC = () => {
     const [showAddModal, setShowAddModal] = useState(false);
     const [showViewModal, setShowViewModal] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
-    const [showSettleModal, setShowSettleModal] = useState(false);
+    const [isArchiving, setIsArchiving] = useState(false);
 
     // Guest Upgrade State
     const [showGuestUpgradeModal, setShowGuestUpgradeModal] = useState(false);
@@ -51,13 +51,14 @@ const BillsPage: React.FC = () => {
     // Settlement Payment State
     const [showPayModal, setShowPayModal] = useState(false);
     const [paymentAmount, setPaymentAmount] = useState('');
-    const [paymentTarget, setPaymentTarget] = useState<{ fromId: string | number, toId: string | number, fromName: string, toName: string } | null>(null);
+    const [paymentTarget, setPaymentTarget] = useState<{ fromId: string | number, toId: string | number, fromName: string, toName: string, amount: number } | null>(null);
     const [openExpenseDropdown, setOpenExpenseDropdown] = useState<number | null>(null);
 
     // Edit Expense State
     const [showEditExpenseModal, setShowEditExpenseModal] = useState(false);
     const [editingExpenseId, setEditingExpenseId] = useState<number | null>(null);
     const [newBillName, setNewBillName] = useState('');
+    const [inviteCode, setInviteCode] = useState('');
     const [joinCode, setJoinCode] = useState('');
     const [isJoiningCode, setIsJoiningCode] = useState(false);
     const [showAddPersonToExpenseModal, setShowAddPersonToExpenseModal] = useState(false);
@@ -811,6 +812,16 @@ const BillsPage: React.FC = () => {
     const handleSettlePayment = async () => {
         if (!selectedBill || !paymentTarget || !paymentAmount) return;
 
+        const amount = parseFloat(paymentAmount);
+        if (isNaN(amount) || amount <= 0) {
+            toast.error('Please enter a valid amount');
+            return;
+        }
+        if (amount > paymentTarget.amount) {
+            toast.error('You cannot pay more than what you owe');
+            return;
+        }
+
         try {
             await fetch(`http://localhost:5001/api/bills/${selectedBill.id}/settlements`, {
                 method: 'POST',
@@ -906,33 +917,6 @@ const BillsPage: React.FC = () => {
                 )}
             </header>
 
-            {isGuestLoggedIn && (
-                <div className="glass-card p-6 bg-gradient-to-r from-indigo-50 to-purple-50 border-indigo-100">
-                    <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-                        <div className="flex-1">
-                            <h3 className="text-lg font-black text-gray-900">Join Another Bill</h3>
-                            <p className="text-sm font-bold text-gray-500">Enter a 6-digit invitation code to view another bill.</p>
-                        </div>
-                        <form onSubmit={handleJoinByCode} className="flex gap-2 w-full md:w-auto">
-                            <input
-                                type="text"
-                                maxLength={6}
-                                value={joinCode}
-                                onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-                                placeholder="CODE12"
-                                className="px-4 py-3 bg-white border border-indigo-100 rounded-xl outline-indigo-500 font-black tracking-widest text-center w-32"
-                            />
-                            <button
-                                type="submit"
-                                disabled={isJoiningCode}
-                                className="px-6 py-3 bg-indigo-600 text-white font-black uppercase tracking-widest text-xs rounded-xl hover:bg-black transition-all disabled:opacity-50"
-                            >
-                                {isJoiningCode ? "Joining..." : "Join Bill"}
-                            </button>
-                        </form>
-                    </div>
-                </div>
-            )}
 
             {loading ? (
                 <div className="text-center py-20">
@@ -1388,34 +1372,36 @@ const BillsPage: React.FC = () => {
                                                     </div>
                                                 </div>
                                             ) : (
-                                                <div className="relative">
-                                                    <div className="absolute inset-y-0 left-3.5 flex items-center text-gray-400 pointer-events-none">
-                                                        <Search size={14} />
-                                                    </div>
-                                                    <input
-                                                        type="text"
-                                                        placeholder="Search registered users..."
-                                                        value={searchQuery}
-                                                        onChange={(e) => handleSearchUsers(e.target.value)}
-                                                        className="w-full pl-10 pr-3 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-indigo-500 text-sm font-bold"
-                                                    />
-                                                    {searchResults.length > 0 && (
-                                                        <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-100 rounded-xl shadow-xl z-20 max-h-48 overflow-y-auto p-1 space-y-1">
-                                                            {searchResults.map(u => (
-                                                                <button key={`${u.is_guest ? 'guest' : 'user'}_${u.id}`} onClick={(e) => { e.preventDefault(); addPersonToBill(u); }} className="w-full text-left p-3 hover:bg-indigo-50 rounded-lg flex items-center gap-3 transition-colors">
-                                                                    <div className="w-8 h-8 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-bold text-xs uppercase">
-                                                                        {(u.nickname || u.first_name || "U")[0]}
-                                                                    </div>
-                                                                    <div>
-                                                                        <p className="text-sm font-bold text-gray-900">{u.nickname || u.first_name}</p>
-                                                                        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wide">
-                                                                            {u.is_guest === 1 ? <span className="text-orange-500">Guest User</span> : `@${u.username}`}
-                                                                        </p>
-                                                                    </div>
-                                                                </button>
-                                                            ))}
+                                                <div>
+                                                    <div className="relative">
+                                                        <div className="absolute inset-y-0 left-3.5 flex items-center text-gray-400 pointer-events-none">
+                                                            <Search size={14} />
                                                         </div>
-                                                    )}
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Search registered users..."
+                                                            value={searchQuery}
+                                                            onChange={(e) => handleSearchUsers(e.target.value)}
+                                                            className="w-full pl-10 pr-3 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-indigo-500 text-sm font-bold"
+                                                        />
+                                                        {searchResults.length > 0 && (
+                                                            <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-100 rounded-xl shadow-xl z-20 max-h-48 overflow-y-auto p-1 space-y-1">
+                                                                {searchResults.map(u => (
+                                                                    <button key={`${u.is_guest ? 'guest' : 'user'}_${u.id}`} onClick={(e) => { e.preventDefault(); addPersonToBill(u); }} className="w-full text-left p-3 hover:bg-indigo-50 rounded-lg flex items-center gap-3 transition-colors">
+                                                                        <div className="w-8 h-8 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-bold text-xs uppercase">
+                                                                            {(u.nickname || u.first_name || "U")[0]}
+                                                                        </div>
+                                                                        <div>
+                                                                            <p className="text-sm font-bold text-gray-900">{u.nickname || u.first_name}</p>
+                                                                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wide">
+                                                                                {u.is_guest === 1 ? <span className="text-orange-500">Guest User</span> : `@${u.username}`}
+                                                                            </p>
+                                                                        </div>
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                     <div className="flex justify-end pt-3">
                                                         <button onClick={() => { resetPersonForm(); setShowAddPersonToExpenseModal(false); }} className="px-4 py-2 bg-gray-100 text-gray-600 text-xs font-bold rounded-lg hover:bg-gray-200 transition-all">Cancel</button>
                                                     </div>
@@ -1632,18 +1618,15 @@ const BillsPage: React.FC = () => {
                                                     <span className="text-sm font-black text-indigo-900">₱{billDetails.expenses.reduce((sum, e) => sum + e.total_amount, 0).toLocaleString()}</span>
                                                 </div>
                                             </div>
-                                            {computedDebts.length > 0 && (
+                                            {computedDebts.some(d => String(d.fromId) === String(user?.id) || String(d.fromId) === `guest_${guestUser?.id}`) && (
                                                 <button
                                                     onClick={() => {
-                                                        const firstDebt = computedDebts.find(d => d.fromId === user?.id || d.fromId === `guest_${guestUser?.id}`);
+                                                        const firstDebt = computedDebts.find(d => String(d.fromId) === String(user?.id) || String(d.fromId) === `guest_${guestUser?.id}`);
                                                         if (firstDebt) {
                                                             setPaymentTarget({ ...firstDebt });
                                                             setPaymentAmount(firstDebt.amount.toFixed(2));
-                                                        } else {
-                                                            setPaymentTarget({ ...computedDebts[0] });
-                                                            setPaymentAmount(computedDebts[0].amount.toFixed(2));
+                                                            setShowPayModal(true);
                                                         }
-                                                        setShowPayModal(true);
                                                     }}
                                                     className="px-4 py-2 bg-indigo-600 text-white text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-indigo-700 shadow-md transition-all flex items-center gap-2 mb-1"
                                                 >
@@ -1665,8 +1648,20 @@ const BillsPage: React.FC = () => {
                                                     </div>
                                                 ))
                                             ) : (
-                                                <div className="text-center py-4 text-xs font-bold text-green-600 bg-green-50 rounded-xl border border-green-100">
-                                                    Everyone is settled up!
+                                                <div className="space-y-4 pt-1">
+                                                    <div className="text-center py-4 text-xs font-bold text-green-600 bg-green-50 rounded-xl border border-green-100">
+                                                        Everyone is settled up!
+                                                    </div>
+                                                    {billDetails?.created_by === user?.id && (
+                                                        <button
+                                                            onClick={handleArchiveBill}
+                                                            disabled={isArchiving}
+                                                            className="w-full py-3 bg-red-50 text-red-600 font-black rounded-xl border border-red-100 hover:bg-red-100 transition-colors text-xs uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-50"
+                                                        >
+                                                            {isArchiving ? <RefreshCcw size={14} className="animate-spin" /> : <Archive size={14} />}
+                                                            {isArchiving ? 'Archiving...' : 'Archive Completed Bill'}
+                                                        </button>
+                                                    )}
                                                 </div>
                                             )}
                                         </div>

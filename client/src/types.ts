@@ -81,6 +81,7 @@ export interface Expense {
     split_type: 'equally' | 'custom';
     involved_person_ids: (number | string)[]; // who is sharing this expense
     created_at: string;
+    splits?: any[];
 }
 
 export interface GuestData {

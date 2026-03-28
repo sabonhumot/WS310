@@ -9,7 +9,7 @@ const InvitePage: React.FC = () => {
     const [inviteCode, setInviteCode] = useState<string | null>(searchParams.get('code') || sessionStorage.getItem('pendingInviteCode'));
     const [shareToken, setShareToken] = useState<string | null>(searchParams.get('token') || sessionStorage.getItem('pendingShareToken'));
     const navigate = useNavigate();
-    const { isLoggedIn } = useAuth();
+    const { isLoggedIn, loginGuest } = useAuth();
 
     const [loading, setLoading] = useState(false);
     const [verifying, setVerifying] = useState(true);
@@ -146,7 +146,7 @@ const InvitePage: React.FC = () => {
             // Save guest session (6 hours)
             const expiry = new Date().getTime() + 6 * 60 * 60 * 1000;
             const guestData = { ...data.guestUser, expiry };
-            localStorage.setItem('guestSession', JSON.stringify(guestData));
+            loginGuest(guestData);
 
             toast.success('Successfully joined the bill!');
             navigate(`/bills?billId=${data.billId}`);
@@ -196,7 +196,7 @@ const InvitePage: React.FC = () => {
                     <p className="text-gray-500 font-bold">You've been invited to join a bill. Please provide your details below to continue.</p>
                 </div>
 
-                <form onSubmit={handleSubmit} className="space-y-6">
+                <form onSubmit={handleSubmit} className="space-y-6" noValidate>
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">First Name</label>

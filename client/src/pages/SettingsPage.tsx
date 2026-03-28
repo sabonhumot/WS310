@@ -12,6 +12,10 @@ const SettingsPage: React.FC = () => {
     const { user, login } = useAuth();
     const [isEditing, setIsEditing] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [isUpgrading, setIsUpgrading] = useState(false);
+    const [showPaymentModal, setShowPaymentModal] = useState(false);
+    const [paymentData, setPaymentData] = useState({ name: '', number: '', exp: '', cvc: '' });
+    const [paymentErrors, setPaymentErrors] = useState<{ [key: string]: string }>({});
     const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [passwordData, setPasswordData] = useState({
         currentPassword: '',
@@ -116,6 +120,67 @@ const SettingsPage: React.FC = () => {
             toast.error('Internal server error');
         } finally {
             setIsChangingPassword(false);
+        }
+    };
+
+    const handlePaymentSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const errors: { [key: string]: string } = {};
+
+        if (!paymentData.name.trim()) errors.name = 'Cardholder name is required';
+
+        const numClean = paymentData.number.replace(/\s/g, '');
+        if (!numClean) {
+            errors.number = 'Card number is required';
+        } else if (numClean.length < 15) {
+            errors.number = 'Invalid card number';
+        }
+
+        if (!paymentData.exp.trim()) {
+            errors.exp = 'Expiry is required';
+        } else if (!/^\d{2}\/\d{2}$/.test(paymentData.exp)) {
+            errors.exp = 'Use MM/YY format';
+        }
+
+        if (!paymentData.cvc.trim()) {
+            errors.cvc = 'Required';
+        } else if (paymentData.cvc.length < 3) {
+            errors.cvc = 'Invalid CVC';
+        }
+
+        if (Object.keys(errors).length > 0) {
+            setPaymentErrors(errors);
+            return;
+        }
+
+        setPaymentErrors({});
+        handleUpgradePremium();
+    };
+
+    const handleUpgradePremium = async () => {
+        if (!user) return;
+        setIsUpgrading(true);
+        try {
+            // Mock payment processing delay
+            await new Promise(resolve => setTimeout(resolve, 1500));
+
+            const response = await fetch(`http://localhost:5001/api/users/${user.id}/upgrade-premium`, {
+                method: 'PUT'
+            });
+            const data = await response.json();
+
+            if (response.ok) {
+                toast.success(data.message);
+                login(data.user); // updates app state immediately
+                setShowPaymentModal(false);
+            } else {
+                toast.error(data.message || 'Failed to upgrade');
+            }
+        } catch (error) {
+            console.error('Error upgrading:', error);
+            toast.error('Internal server error');
+        } finally {
+            setIsUpgrading(false);
         }
     };
 
@@ -334,7 +399,10 @@ const SettingsPage: React.FC = () => {
                         {/* Upgrade CTA for Standard users */}
                         {!premium && (
                             <div className="px-5 pb-5">
-                                <button className="w-full py-3 bg-gradient-to-r from-amber-400 to-orange-400 text-amber-950 font-black text-xs uppercase tracking-widest rounded-xl hover:from-amber-300 hover:to-orange-300 transition-all shadow-md shadow-amber-100 flex items-center justify-center gap-2">
+                                <button
+                                    onClick={() => setShowPaymentModal(true)}
+                                    className="w-full py-3 bg-gradient-to-r from-amber-400 to-orange-400 text-amber-950 font-black text-xs uppercase tracking-widest rounded-xl hover:from-amber-300 hover:to-orange-300 transition-all shadow-md shadow-amber-100 flex items-center justify-center gap-2"
+                                >
                                     <Crown className="w-4 h-4" />
                                     Upgrade to Premium
                                 </button>
@@ -447,6 +515,84 @@ const SettingsPage: React.FC = () => {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+            {/* Mock Payment Modal */}
+            {showPaymentModal && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[300] p-4 animate-in fade-in duration-300">
+                    <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in scale-in-95 duration-300">
+                        <div className="bg-gradient-to-br from-amber-400 to-orange-400 p-6 flex items-center justify-between text-amber-950">
+                            <div>
+                                <h2 className="text-2xl font-black">Premium Plan</h2>
+                                <p className="text-sm font-bold opacity-80 mt-1">₱499.00 / month</p>
+                            </div>
+                            <Crown className="w-10 h-10 opacity-50" />
+                        </div>
+                        <div className="p-8">
+                            <form onSubmit={handlePaymentSubmit} className="space-y-4" noValidate>
+                                <div>
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Cardholder Name</label>
+                                    <input
+                                        type="text"
+                                        value={paymentData.name} onChange={e => { setPaymentData({ ...paymentData, name: e.target.value }); setPaymentErrors(p => ({ ...p, name: '' })); }}
+                                        className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 font-bold ${paymentErrors.name ? 'border-red-500 focus:ring-red-500/20' : 'border-gray-100 focus:ring-amber-500'}`}
+                                        placeholder="Juan Dela Cruz"
+                                    />
+                                    {paymentErrors.name && <p className="text-[10px] font-bold text-red-500 ml-1 mt-1">{paymentErrors.name}</p>}
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Card Number</label>
+                                    <input
+                                        type="text" maxLength={19}
+                                        value={paymentData.number} onChange={e => { setPaymentData({ ...paymentData, number: e.target.value }); setPaymentErrors(p => ({ ...p, number: '' })); }}
+                                        className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 font-bold tracking-widest ${paymentErrors.number ? 'border-red-500 focus:ring-red-500/20' : 'border-gray-100 focus:ring-amber-500'}`}
+                                        placeholder="0000 0000 0000 0000"
+                                    />
+                                    {paymentErrors.number && <p className="text-[10px] font-bold text-red-500 ml-1 mt-1">{paymentErrors.number}</p>}
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Expiry Date</label>
+                                        <input
+                                            type="text" maxLength={5}
+                                            value={paymentData.exp} onChange={e => { setPaymentData({ ...paymentData, exp: e.target.value }); setPaymentErrors(p => ({ ...p, exp: '' })); }}
+                                            className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 font-bold ${paymentErrors.exp ? 'border-red-500 focus:ring-red-500/20' : 'border-gray-100 focus:ring-amber-500'}`}
+                                            placeholder="MM/YY"
+                                        />
+                                        {paymentErrors.exp && <p className="text-[10px] font-bold text-red-500 ml-1 mt-1">{paymentErrors.exp}</p>}
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">CVC</label>
+                                        <input
+                                            type="text" maxLength={4}
+                                            value={paymentData.cvc} onChange={e => { setPaymentData({ ...paymentData, cvc: e.target.value }); setPaymentErrors(p => ({ ...p, cvc: '' })); }}
+                                            className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 font-bold ${paymentErrors.cvc ? 'border-red-500 focus:ring-red-500/20' : 'border-gray-100 focus:ring-amber-500'}`}
+                                            placeholder="123"
+                                        />
+                                        {paymentErrors.cvc && <p className="text-[10px] font-bold text-red-500 ml-1 mt-1">{paymentErrors.cvc}</p>}
+                                    </div>
+                                </div>
+                                <div className="flex gap-3 pt-6 mt-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowPaymentModal(false)}
+                                        disabled={isUpgrading}
+                                        className="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition-all text-xs uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={isUpgrading}
+                                        className="flex-1 py-3 bg-gradient-to-r from-amber-400 to-orange-400 text-amber-950 font-black rounded-xl hover:from-amber-300 hover:to-orange-300 transition-all shadow-md shadow-amber-200 flex items-center justify-center gap-2 text-xs uppercase tracking-widest disabled:opacity-70 disabled:cursor-not-allowed"
+                                    >
+                                        {isUpgrading && <Loader2 className="w-4 h-4 animate-spin text-amber-950" />}
+                                        {isUpgrading ? 'Processing...' : 'Pay ₱499.00'}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
                     </div>
                 </div>
             )}
