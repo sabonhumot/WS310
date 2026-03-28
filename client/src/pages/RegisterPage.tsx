@@ -1,14 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import type { RegisterData } from '../types';
 import { Mail, Lock, Eye, EyeOff, User, ArrowRight } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 
 const RegisterPage: React.FC = () => {
+    const { login } = useAuth();
+    const navigate = useNavigate();
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [isGuestUpgrading, setIsGuestUpgrading] = useState(false);
+    const [guestId, setGuestId] = useState<number | null>(null);
     const [fieldErrors, setFieldErrors] = useState<{ [key: string]: string }>({});
-    const [formData, setFormData] = useState<RegisterData>({
+    const [formData, setFormData] = useState({
         firstName: '',
         lastName: '',
         nickname: '',
@@ -17,6 +21,29 @@ const RegisterPage: React.FC = () => {
         password: '',
         confirmPassword: '',
     });
+
+    useEffect(() => {
+        const guestSession = localStorage.getItem('guestSession');
+        if (guestSession) {
+            try {
+                const guestData = JSON.parse(guestSession);
+                if (guestData && guestData.id) {
+                    setIsGuestUpgrading(true);
+                    setGuestId(guestData.id);
+                    setFormData(prev => ({
+                        ...prev,
+                        firstName: guestData.first_name || '',
+                        lastName: guestData.last_name || '',
+                        nickname: guestData.nickname || '',
+                        email: guestData.email || ''
+                    }));
+                    toast.success("Guest details pre-filled! Complete your registration below.");
+                }
+            } catch (e) {
+                console.error("Error parsing guest session:", e);
+            }
+        }
+    }, []);
 
     const validateForm = (): boolean => {
         const errors: { [key: string]: string } = {};
@@ -69,12 +96,28 @@ const RegisterPage: React.FC = () => {
 
         setLoading(true);
         try {
-            const response = await fetch("http://localhost:5001/api/register", {
+            const endpoint = isGuestUpgrading 
+                ? "http://localhost:5001/api/users/upgrade-guest" 
+                : "http://localhost:5001/api/register";
+
+            const payload = isGuestUpgrading 
+                ? {
+                    guest_id: guestId,
+                    first_name: formData.firstName,
+                    last_name: formData.lastName,
+                    nickname: formData.nickname,
+                    email: formData.email,
+                    username: formData.username,
+                    password: formData.password
+                }
+                : formData;
+
+            const response = await fetch(endpoint, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                 },
-                body: JSON.stringify(formData),
+                body: JSON.stringify(payload),
             });
 
             const data = await response.json();
@@ -87,20 +130,29 @@ const RegisterPage: React.FC = () => {
                     setFieldErrors(prev => ({ ...prev, username: data.message }));
                 } else if (data.message.includes('Nickname')) {
                     setFieldErrors(prev => ({ ...prev, nickname: data.message }));
+                } else {
+                    toast.error(data.message || "Registration failed");
                 }
                 return;
             }
 
-            toast.success("Registration successful! Please check your email to verify your account.");
-            setFormData({
-                firstName: '',
-                lastName: '',
-                nickname: '',
-                email: '',
-                username: '',
-                password: '',
-                confirmPassword: '',
-            });
+            if (isGuestUpgrading) {
+                toast.success("Account successfully upgraded!");
+                localStorage.removeItem('guestSession');
+                login(data.user);
+                navigate('/bills');
+            } else {
+                toast.success("Registration successful! Please check your email to verify your account.");
+                setFormData({
+                    firstName: '',
+                    lastName: '',
+                    nickname: '',
+                    email: '',
+                    username: '',
+                    password: '',
+                    confirmPassword: '',
+                });
+            }
         } catch (err: unknown) {
             const errorMsg = err instanceof Error ? err.message : "An error occurred";
             toast.error(errorMsg);
@@ -126,11 +178,17 @@ const RegisterPage: React.FC = () => {
             <div className="w-full max-w-md">
                 <div className="bg-white rounded-2xl shadow-xl shadow-gray-200/50 border border-gray-100 p-8">
                     <div className="text-center mb-8">
-                        <h2 className="text-3xl font-bold text-gray-900 tracking-tight">Create account</h2>
-                        <p className="text-gray-500 mt-2">Join us to start splitting bills easily</p>
+                        <h2 className="text-3xl font-bold text-gray-900 tracking-tight">
+                            {isGuestUpgrading ? "Complete Registration" : "Create account"}
+                        </h2>
+                        <p className="text-gray-500 mt-2">
+                            {isGuestUpgrading 
+                                ? "Choose a username and password to secure your account" 
+                                : "Join us to start splitting bills easily"}
+                        </p>
                     </div>
 
-                    <form onSubmit={handleSubmit} className="space-y-5">
+                    <form onSubmit={handleSubmit} noValidate className="space-y-5">
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="firstName">
@@ -149,12 +207,12 @@ const RegisterPage: React.FC = () => {
                                         placeholder="First Name"
                                         value={formData.firstName}
                                         onChange={(e) => handleInputChange('firstName', e.target.value)}
+                                        readOnly={isGuestUpgrading}
                                     />
                                 </div>
-                                {fieldErrors.firstName && (
-                                    <p className="mt-1 text-xs text-red-600 font-medium">{fieldErrors.firstName}</p>
-                                )}
+                                {fieldErrors.firstName && <p className="mt-1 text-xs text-red-500 font-medium">{fieldErrors.firstName}</p>}
                             </div>
+
                             <div>
                                 <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="lastName">
                                     Last Name
@@ -172,11 +230,10 @@ const RegisterPage: React.FC = () => {
                                         placeholder="Last Name"
                                         value={formData.lastName}
                                         onChange={(e) => handleInputChange('lastName', e.target.value)}
+                                        readOnly={isGuestUpgrading}
                                     />
                                 </div>
-                                {fieldErrors.lastName && (
-                                    <p className="mt-1 text-xs text-red-600 font-medium">{fieldErrors.lastName}</p>
-                                )}
+                                {fieldErrors.lastName && <p className="mt-1 text-xs text-red-500 font-medium">{fieldErrors.lastName}</p>}
                             </div>
                         </div>
 
@@ -194,19 +251,17 @@ const RegisterPage: React.FC = () => {
                                     className={`block w-full pl-10 pr-3 py-3 border rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:bg-white transition-all sm:text-sm ${
                                         fieldErrors.nickname ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-200 focus:ring-indigo-500/20 focus:border-indigo-500'
                                     }`}
-                                    placeholder="Nickname"
+                                    placeholder="Your Nickname"
                                     value={formData.nickname}
                                     onChange={(e) => handleInputChange('nickname', e.target.value)}
                                 />
                             </div>
-                            {fieldErrors.nickname && (
-                                <p className="mt-1 text-xs text-red-600 font-medium">{fieldErrors.nickname}</p>
-                            )}
+                            {fieldErrors.nickname && <p className="mt-1 text-xs text-red-500 font-medium">{fieldErrors.nickname}</p>}
                         </div>
 
                         <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="email">
-                                Email
+                                Email Address
                             </label>
                             <div className="relative group">
                                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400 group-focus-within:text-indigo-600 transition-colors">
@@ -218,14 +273,13 @@ const RegisterPage: React.FC = () => {
                                     className={`block w-full pl-10 pr-3 py-3 border rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:bg-white transition-all sm:text-sm ${
                                         fieldErrors.email ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-200 focus:ring-indigo-500/20 focus:border-indigo-500'
                                     }`}
-                                    placeholder="Email address"
+                                    placeholder="email@example.com"
                                     value={formData.email}
                                     onChange={(e) => handleInputChange('email', e.target.value)}
+                                    readOnly={isGuestUpgrading}
                                 />
                             </div>
-                            {fieldErrors.email && (
-                                <p className="mt-1 text-xs text-red-600 font-medium">{fieldErrors.email}</p>
-                            )}
+                            {fieldErrors.email && <p className="mt-1 text-xs text-red-500 font-medium">{fieldErrors.email}</p>}
                         </div>
 
                         <div>
@@ -242,16 +296,13 @@ const RegisterPage: React.FC = () => {
                                     className={`block w-full pl-10 pr-3 py-3 border rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:bg-white transition-all sm:text-sm ${
                                         fieldErrors.username ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-200 focus:ring-indigo-500/20 focus:border-indigo-500'
                                     }`}
-                                    placeholder="Username"
+                                    placeholder="Choose a username"
                                     value={formData.username}
                                     onChange={(e) => handleInputChange('username', e.target.value)}
                                 />
                             </div>
-                            {fieldErrors.username && (
-                                <p className="mt-1 text-xs text-red-600 font-medium">{fieldErrors.username}</p>
-                            )}
+                            {fieldErrors.username && <p className="mt-1 text-xs text-red-500 font-medium">{fieldErrors.username}</p>}
                         </div>
-
 
                         <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="password">
@@ -263,7 +314,7 @@ const RegisterPage: React.FC = () => {
                                 </div>
                                 <input
                                     id="password"
-                                    type={showPassword ? 'text' : 'password'}
+                                    type={showPassword ? "text" : "password"}
                                     className={`block w-full pl-10 pr-10 py-3 border rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:bg-white transition-all sm:text-sm ${
                                         fieldErrors.password ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-200 focus:ring-indigo-500/20 focus:border-indigo-500'
                                     }`}
@@ -279,9 +330,7 @@ const RegisterPage: React.FC = () => {
                                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                                 </button>
                             </div>
-                            {fieldErrors.password && (
-                                <p className="mt-1 text-xs text-red-600 font-medium">{fieldErrors.password}</p>
-                            )}
+                            {fieldErrors.password && <p className="mt-1 text-xs text-red-500 font-medium">{fieldErrors.password}</p>}
                         </div>
 
                         <div>
@@ -294,7 +343,7 @@ const RegisterPage: React.FC = () => {
                                 </div>
                                 <input
                                     id="confirmPassword"
-                                    type={showPassword ? 'text' : 'password'}
+                                    type={showPassword ? "text" : "password"}
                                     className={`block w-full pl-10 pr-10 py-3 border rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:bg-white transition-all sm:text-sm ${
                                         fieldErrors.confirmPassword ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-200 focus:ring-indigo-500/20 focus:border-indigo-500'
                                     }`}
@@ -303,31 +352,33 @@ const RegisterPage: React.FC = () => {
                                     onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
                                 />
                             </div>
-                            {fieldErrors.confirmPassword && (
-                                <p className="mt-1 text-xs text-red-600 font-medium">{fieldErrors.confirmPassword}</p>
-                            )}
+                            {fieldErrors.confirmPassword && <p className="mt-1 text-xs text-red-500 font-medium">{fieldErrors.confirmPassword}</p>}
                         </div>
 
                         <button
                             type="submit"
                             disabled={loading}
-                            className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2 mt-2"
+                            className="w-full flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-lg shadow-indigo-200/50 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all active:scale-[0.98] disabled:opacity-70 disabled:active:scale-100"
                         >
-                            {loading ? 'Creating account...' : (
-                                <>
-                                    Create Account
-                                    <ArrowRight size={18} />
-                                </>
+                            {loading ? (
+                                <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+                            ) : (
+                                <div className="flex items-center">
+                                    {isGuestUpgrading ? "Upgrade Account" : "Sign up"}
+                                    <ArrowRight className="ml-2 w-4 h-4" />
+                                </div>
                             )}
                         </button>
+                    </form>
 
-                        <p className="text-center text-gray-600 text-sm font-medium mt-6">
+                    <div className="mt-8 text-center">
+                        <p className="text-sm text-gray-600">
                             Already have an account?{' '}
-                            <Link to="/login" className="text-indigo-600 hover:text-indigo-700 font-bold">
+                            <Link to="/login" className="font-bold text-indigo-600 hover:text-indigo-500 transition-colors">
                                 Sign in
                             </Link>
                         </p>
-                    </form>
+                    </div>
                 </div>
             </div>
         </div>
@@ -335,4 +386,3 @@ const RegisterPage: React.FC = () => {
 };
 
 export default RegisterPage;
-

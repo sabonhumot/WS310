@@ -78,15 +78,19 @@ const ActivityPage: React.FC = () => {
                                     </div>
                                     <div>
                                         <p className="font-bold text-gray-900">{item.title}</p>
-                                        <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mt-0.5">{item.date}</p>
+                                        <div className="flex items-center gap-2 mt-0.5">
+                                            <p className="text-[10px] text-indigo-600 font-black uppercase tracking-widest">{item.bill_name}</p>
+                                            <span className="text-gray-300">•</span>
+                                            <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">{item.date}</p>
+                                        </div>
                                     </div>
                                 </div>
                                 <div className="text-right">
                                     <p className={`font-black text-lg ${item.type === 'owe' ? 'text-gray-900' : 'text-green-600'}`}>
-                                        {item.type === 'owe' ? '-' : '+'}{item.amount}
+                                        {item.amount}
                                     </p>
                                     <div className="flex items-center justify-end gap-1.5 mt-1">
-                                        <span className={`text-[9px] uppercase font-black px-2 py-0.5 rounded ${item.status === 'Paid' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                        <span className={`text-[9px] uppercase font-black px-2 py-0.5 rounded ${item.status === 'Completed' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
                                             {item.status}
                                         </span>
                                     </div>

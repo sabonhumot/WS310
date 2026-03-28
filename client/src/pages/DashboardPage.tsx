@@ -50,12 +50,6 @@ const DashboardPage: React.FC = () => {
                     <h1 className="text-3xl font-black text-gray-900">Welcome back, {user?.nickname}!</h1>
                     <p className="text-gray-500 font-medium">Here's what's happening with your expenses.</p>
                 </div>
-                <button 
-                    onClick={() => navigate('/bills')}
-                    className="premium-button py-3 px-6 rounded-xl flex items-center gap-2">
-                    <PlusCircle className="w-5 h-5" />
-                    New Split
-                </button>
             </header>
 
             {/* Stats Grid */}
@@ -102,8 +96,8 @@ const DashboardPage: React.FC = () => {
                 <section className="xl:col-span-3 space-y-6">
                     <div className="flex justify-between items-center">
                         <h2 className="text-xl font-bold text-gray-900">Recent Activity</h2>
-                        <button 
-                            onClick={() => navigate('/bills')}
+                        <button
+                            onClick={() => navigate('/activity')}
                             className="text-indigo-600 font-bold text-sm hover:underline flex items-center gap-1">
                             View all <ChevronRight className="w-4 h-4" />
                         </button>
@@ -119,14 +113,18 @@ const DashboardPage: React.FC = () => {
                                         </div>
                                         <div>
                                             <p className="font-bold text-gray-900">{item.title}</p>
-                                            <p className="text-sm text-gray-400 font-medium">{item.date}</p>
+                                            <div className="flex items-center gap-2">
+                                                <p className="text-xs text-indigo-600 font-bold">{item.bill_name}</p>
+                                                <span className="text-gray-300">•</span>
+                                                <p className="text-xs text-gray-400 font-medium">{item.date}</p>
+                                            </div>
                                         </div>
                                     </div>
                                     <div className="text-right">
                                         <p className={`font-black ${item.type === 'owe' ? 'text-gray-900' : 'text-green-600'}`}>
-                                            {item.type === 'owe' ? '-' : '+'}{item.amount}
+                                            {item.amount}
                                         </p>
-                                        <span className={`text-[10px] uppercase font-black px-2 py-0.5 rounded ${item.status === 'Paid' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                        <span className={`text-[10px] uppercase font-black px-2 py-0.5 rounded ${item.status === 'Completed' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
                                             {item.status}
                                         </span>
                                     </div>
@@ -134,7 +132,7 @@ const DashboardPage: React.FC = () => {
                             ))
                         ) : (
                             <div className="glass-card p-12 text-center text-gray-400 font-medium italic">
-                                No recent activity found.
+                                No activity found.
                             </div>
                         )}
                     </div>

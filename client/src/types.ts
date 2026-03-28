@@ -56,6 +56,7 @@ export interface Bill {
     id: number;
     bill_name: string;
     invite_code: string;
+    share_token: string;
     created_by: number;
     created_at: string;
     archived_at?: string;

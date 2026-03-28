@@ -38,11 +38,23 @@ const initializeTables = async (connection: any) => {
                 created_by INT NOT NULL,
                 bill_name VARCHAR(255) NOT NULL,
                 invite_code VARCHAR(50) UNIQUE NOT NULL,
+                share_token VARCHAR(255) UNIQUE DEFAULT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 archived_at TIMESTAMP NULL,
                 FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
             )
         `);
+
+        // Check if share_token column exists, if not add it (for existing databases)
+        try {
+            const [columns] = await connection.query("SHOW COLUMNS FROM bills LIKE 'share_token'");
+            if (columns.length === 0) {
+                await connection.query("ALTER TABLE bills ADD COLUMN share_token VARCHAR(255) UNIQUE AFTER invite_code");
+                console.log("✓ Added share_token column to bills table");
+            }
+        } catch (err) {
+            console.error("Error checking/adding share_token column:", err);
+        }
 
         // Guest users table
         await connection.query(`
@@ -111,6 +123,25 @@ const initializeTables = async (connection: any) => {
                 expires_at TIMESTAMP NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        `);
+
+        // Settlements table for Tab 3 (Payment feature)
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS settlements (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                bill_id INT NOT NULL,
+                paid_by_user_id INT,
+                paid_by_guest_id INT,
+                paid_to_user_id INT,
+                paid_to_guest_id INT,
+                amount DECIMAL(10, 2) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (bill_id) REFERENCES bills(id) ON DELETE CASCADE,
+                FOREIGN KEY (paid_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
+                FOREIGN KEY (paid_by_guest_id) REFERENCES guest_users(id) ON DELETE SET NULL,
+                FOREIGN KEY (paid_to_user_id) REFERENCES users(id) ON DELETE SET NULL,
+                FOREIGN KEY (paid_to_guest_id) REFERENCES guest_users(id) ON DELETE SET NULL
             )
         `);
 

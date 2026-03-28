@@ -7,7 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 
 const LoginPage: React.FC = () => {
     const [showPassword, setShowPassword] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+    const [fieldErrors, setFieldErrors] = useState<{ username?: string, password?: string, general?: string }>({});
     const [loading, setLoading] = useState(false);
     const [formData, setFormData] = useState({
         username: '',
@@ -19,7 +19,21 @@ const LoginPage: React.FC = () => {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        setError(null);
+        setFieldErrors({});
+        
+        const errors: { username?: string, password?: string } = {};
+        if (!formData.username.trim()) {
+            errors.username = 'Username is required';
+        }
+        if (!formData.password) {
+            errors.password = 'Password is required';
+        }
+        
+        if (Object.keys(errors).length > 0) {
+            setFieldErrors(errors);
+            return;
+        }
+
         setLoading(true);
 
         try {
@@ -44,7 +58,12 @@ const LoginPage: React.FC = () => {
         } catch (err: unknown) {
             const errorMsg = err instanceof Error ? err.message : "An error occurred";
             toast.error(errorMsg);
-            setError(errorMsg);
+            
+            if (errorMsg.toLowerCase().includes('username') || errorMsg.toLowerCase().includes('password')) {
+                setFieldErrors({ username: errorMsg, password: errorMsg });
+            } else {
+                setFieldErrors({ general: errorMsg });
+            }
         } finally {
             setLoading(false);
         }
@@ -59,7 +78,7 @@ const LoginPage: React.FC = () => {
                         <p className="text-gray-500 mt-2">Please enter your details to sign in</p>
                     </div>
 
-                    <form onSubmit={handleSubmit} className="space-y-6">
+                    <form onSubmit={handleSubmit} noValidate className="space-y-6">
                         <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="username">
                                 Username
@@ -71,13 +90,20 @@ const LoginPage: React.FC = () => {
                                 <input
                                     id="username"
                                     type="text"
-                                    required
-                                    className="block w-full pl-10 pr-3 py-3 border border-gray-200 rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:bg-white transition-all sm:text-sm"
+                                    className={`block w-full pl-10 pr-3 py-3 border rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:bg-white transition-all sm:text-sm ${
+                                        fieldErrors.username ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-200 focus:ring-indigo-500/20 focus:border-indigo-500'
+                                    }`}
                                     placeholder="Username"
                                     value={formData.username}
-                                    onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                                    onChange={(e) => {
+                                        setFormData({ ...formData, username: e.target.value });
+                                        if (fieldErrors.username) setFieldErrors(prev => ({ ...prev, username: undefined }));
+                                    }}
                                 />
                             </div>
+                            {fieldErrors.username && (
+                                <p className="mt-1 text-xs text-red-600 font-medium">{fieldErrors.username}</p>
+                            )}
                         </div>
 
                         <div>
@@ -96,11 +122,15 @@ const LoginPage: React.FC = () => {
                                 <input
                                     id="password"
                                     type={showPassword ? 'text' : 'password'}
-                                    required
-                                    className="block w-full pl-10 pr-10 py-3 border border-gray-200 rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:bg-white transition-all sm:text-sm"
+                                    className={`block w-full pl-10 pr-10 py-3 border rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:bg-white transition-all sm:text-sm ${
+                                        fieldErrors.password ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-200 focus:ring-indigo-500/20 focus:border-indigo-500'
+                                    }`}
                                     placeholder="••••••••"
                                     value={formData.password}
-                                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                                    onChange={(e) => {
+                                        setFormData({ ...formData, password: e.target.value });
+                                        if (fieldErrors.password) setFieldErrors(prev => ({ ...prev, password: undefined }));
+                                    }}
                                 />
                                 <button
                                     type="button"
@@ -110,6 +140,9 @@ const LoginPage: React.FC = () => {
                                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                                 </button>
                             </div>
+                            {fieldErrors.password && (
+                                <p className="mt-1 text-xs text-red-600 font-medium">{fieldErrors.password}</p>
+                            )}
                         </div>
 
                         <div className="flex items-center">
@@ -123,9 +156,9 @@ const LoginPage: React.FC = () => {
                             </label>
                         </div>
 
-                        {error && (
+                        {fieldErrors.general && (
                             <p className="text-red-500 text-xs font-medium mt-1 animate-in fade-in slide-in-from-top-1">
-                                {error}
+                                {fieldErrors.general}
                             </p>
                         )}
 

@@ -1,7 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { User, Bell, Shield, Smartphone, Loader2 } from 'lucide-react';
+import {
+    User, Shield, Loader2, Crown, Star,
+    CheckCircle2, Lock, Zap, Users, FileText
+} from 'lucide-react';
 import toast from 'react-hot-toast';
+
+const isPremium = (user_type_id: number) => user_type_id === 2;
 
 const SettingsPage: React.FC = () => {
     const { user, login } = useAuth();
@@ -14,11 +19,13 @@ const SettingsPage: React.FC = () => {
         confirmNewPassword: ''
     });
     const [isChangingPassword, setIsChangingPassword] = useState(false);
-    
+
     const [formData, setFormData] = useState({
         first_name: '',
         last_name: '',
-        nickname: ''
+        nickname: '',
+        username: '',
+        email: ''
     });
 
     useEffect(() => {
@@ -26,15 +33,17 @@ const SettingsPage: React.FC = () => {
             setFormData({
                 first_name: user.first_name || '',
                 last_name: user.last_name || '',
-                nickname: user.nickname || ''
+                nickname: user.nickname || '',
+                username: user.username || '',
+                email: user.email || ''
             });
         }
     }, [user, isEditing]);
 
     const handleSaveProfile = async () => {
         if (!user) return;
-        
-        if (!formData.first_name || !formData.last_name || !formData.nickname) {
+
+        if (!formData.first_name || !formData.last_name || !formData.nickname || !formData.username || !formData.email) {
             toast.error('All fields are required');
             return;
         }
@@ -51,7 +60,7 @@ const SettingsPage: React.FC = () => {
 
             if (response.ok) {
                 toast.success('Profile updated successfully');
-                login(data.user); // Update context and localStorage
+                login(data.user);
                 setIsEditing(false);
             } else {
                 toast.error(data.message || 'Failed to update profile');
@@ -66,7 +75,7 @@ const SettingsPage: React.FC = () => {
 
     const handleChangePassword = async (e: React.FormEvent) => {
         e.preventDefault();
-        
+
         if (!passwordData.currentPassword || !passwordData.newPassword || !passwordData.confirmNewPassword) {
             toast.error('All fields are required');
             return;
@@ -110,14 +119,18 @@ const SettingsPage: React.FC = () => {
         }
     };
 
+
+    const premium = user ? isPremium(user.user_type_id) : false;
+
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <header>
                 <h1 className="text-3xl font-black text-gray-900">Settings</h1>
-                <p className="text-gray-500 font-medium mt-2">Personalize your split experience</p>
+                <p className="text-gray-500 font-medium mt-2">Manage your account and preferences</p>
             </header>
 
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                {/* LEFT: Profile Info */}
                 <div className="xl:col-span-2 space-y-8">
                     {/* Profile Section */}
                     <section className="glass-card overflow-hidden transition-all duration-300">
@@ -127,62 +140,99 @@ const SettingsPage: React.FC = () => {
                                 <h2 className="text-lg font-black text-gray-900">Profile Information</h2>
                             </div>
                             {isEditing && (
-                                <button 
-                                    onClick={() => setIsEditing(false)} 
+                                <button
+                                    onClick={() => setIsEditing(false)}
                                     className="text-gray-400 hover:text-gray-600 text-xs font-bold uppercase tracking-wider"
                                 >
                                     Cancel
                                 </button>
                             )}
                         </div>
+
                         <div className="p-8 space-y-6">
+                            {/* Full Name (prominent display) */}
+                            <div className="flex items-center gap-4 p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
+                                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-200 flex-shrink-0">
+                                    <span className="text-white text-xl font-black">
+                                        {(isEditing ? formData.first_name : user?.first_name)?.charAt(0).toUpperCase() || '?'}
+                                    </span>
+                                </div>
+                                <div>
+                                    <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-0.5">Profile Name</p>
+                                    <p className="text-xl font-black text-indigo-700">
+                                        {isEditing
+                                            ? `${formData.first_name} ${formData.last_name}`
+                                            : `${user?.first_name || ''} ${user?.last_name || ''}`.trim() || '—'}
+                                    </p>
+                                </div>
+                            </div>
+
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div>
-                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Nickname</label>
-                                    <input 
-                                        type="text" 
-                                        value={isEditing ? formData.nickname : (user?.nickname || '')} 
-                                        onChange={(e) => setFormData({...formData, nickname: e.target.value})}
-                                        disabled={!isEditing} 
-                                        className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-gray-900 font-bold transition-all ${isEditing ? 'border-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white' : 'border-transparent cursor-not-allowed'}`} 
-                                    />
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Username</label>
+                                    <div className="relative">
+                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold">@</span>
+                                        <input
+                                            type="text"
+                                            value={isEditing ? formData.username : (user?.username || '')}
+                                            onChange={(e) => setFormData({ ...formData, username: e.target.value.replace(/[^a-zA-Z0-9_]/g, '') })}
+                                            disabled={!isEditing}
+                                            className={`w-full pl-8 pr-4 py-3 bg-gray-50 border rounded-xl text-gray-900 font-bold transition-all ${isEditing ? 'border-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white' : 'border-transparent cursor-not-allowed'}`}
+                                            placeholder="username"
+                                        />
+                                    </div>
                                 </div>
                                 <div>
                                     <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Email Address</label>
-                                    <input 
-                                        type="email" 
-                                        value={user?.email || ''} 
-                                        disabled 
-                                        className="w-full px-4 py-3 bg-gray-50 border border-transparent rounded-xl text-gray-400 font-bold cursor-not-allowed" 
-                                        title="Email address cannot be changed"
+                                    <input
+                                        type="email"
+                                        value={isEditing ? formData.email : (user?.email || '')}
+                                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                                        disabled={!isEditing}
+                                        className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-gray-900 font-bold transition-all ${isEditing ? 'border-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white' : 'border-transparent cursor-not-allowed'}`}
+                                        placeholder="email@example.com"
                                     />
                                 </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Nickname</label>
+                                    <input
+                                        type="text"
+                                        value={isEditing ? formData.nickname : (user?.nickname || '')}
+                                        onChange={(e) => setFormData({ ...formData, nickname: e.target.value })}
+                                        disabled={!isEditing}
+                                        className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-gray-900 font-bold transition-all ${isEditing ? 'border-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white' : 'border-transparent cursor-not-allowed'}`}
+                                    />
+                                </div>
+                                <div className="invisible md:visible" />
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div>
                                     <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">First Name</label>
-                                    <input 
-                                        type="text" 
-                                        value={isEditing ? formData.first_name : (user?.first_name || '')} 
-                                        onChange={(e) => setFormData({...formData, first_name: e.target.value})}
-                                        disabled={!isEditing} 
-                                        className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-gray-900 font-bold transition-all ${isEditing ? 'border-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white' : 'border-transparent cursor-not-allowed'}`} 
+                                    <input
+                                        type="text"
+                                        value={isEditing ? formData.first_name : (user?.first_name || '')}
+                                        onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+                                        disabled={!isEditing}
+                                        className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-gray-900 font-bold transition-all ${isEditing ? 'border-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white' : 'border-transparent cursor-not-allowed'}`}
                                     />
                                 </div>
                                 <div>
                                     <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Last Name</label>
-                                    <input 
-                                        type="text" 
-                                        value={isEditing ? formData.last_name : (user?.last_name || '')} 
-                                        onChange={(e) => setFormData({...formData, last_name: e.target.value})}
-                                        disabled={!isEditing} 
-                                        className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-gray-900 font-bold transition-all ${isEditing ? 'border-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white' : 'border-transparent cursor-not-allowed'}`} 
+                                    <input
+                                        type="text"
+                                        value={isEditing ? formData.last_name : (user?.last_name || '')}
+                                        onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+                                        disabled={!isEditing}
+                                        className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-gray-900 font-bold transition-all ${isEditing ? 'border-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white' : 'border-transparent cursor-not-allowed'}`}
                                     />
                                 </div>
                             </div>
                             <div className="pt-4 flex justify-end">
                                 {isEditing ? (
-                                    <button 
+                                    <button
                                         onClick={handleSaveProfile}
                                         disabled={isSaving}
                                         className="px-8 py-3 bg-indigo-600 text-white font-black uppercase tracking-widest rounded-xl hover:bg-indigo-700 transition-all text-xs shadow-lg shadow-indigo-200 flex items-center gap-2"
@@ -191,7 +241,7 @@ const SettingsPage: React.FC = () => {
                                         {isSaving ? 'Saving...' : 'Save Changes'}
                                     </button>
                                 ) : (
-                                    <button 
+                                    <button
                                         onClick={() => setIsEditing(true)}
                                         className="px-6 py-3 bg-gray-900 text-white font-black uppercase tracking-widest rounded-xl hover:bg-gray-800 transition-all text-xs"
                                     >
@@ -201,73 +251,129 @@ const SettingsPage: React.FC = () => {
                             </div>
                         </div>
                     </section>
-
-                    {/* Preferences Section */}
-                    <section className="glass-card overflow-hidden">
-                        <div className="p-6 border-b border-gray-50 flex items-center gap-2">
-                             <Bell className="w-5 h-5 text-indigo-600" />
-                             <h2 className="text-lg font-black text-gray-900">Preferences</h2>
-                        </div>
-                        <div className="p-8 space-y-4">
-                            <label className="flex items-center justify-between p-4 bg-gray-50/50 rounded-xl cursor-pointer hover:bg-gray-50 transition-colors">
-                                <div className="space-y-0.5">
-                                    <p className="font-bold text-gray-900">Email Notifications</p>
-                                    <p className="text-xs text-gray-400">Receive updates about your bill splits</p>
-                                </div>
-                                <div className="relative inline-flex items-center cursor-pointer">
-                                    <input type="checkbox" className="sr-only peer" defaultChecked />
-                                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
-                                </div>
-                            </label>
-                            <label className="flex items-center justify-between p-4 bg-gray-50/50 rounded-xl cursor-pointer hover:bg-gray-50 transition-colors">
-                                <div className="space-y-0.5">
-                                    <p className="font-bold text-gray-900">Payment Reminders</p>
-                                    <p className="text-xs text-gray-400">Get notified when someone owes you</p>
-                                </div>
-                                <div className="relative inline-flex items-center cursor-pointer">
-                                    <input type="checkbox" className="sr-only peer" defaultChecked />
-                                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
-                                </div>
-                            </label>
-                        </div>
-                    </section>
                 </div>
 
+                {/* RIGHT SIDEBAR */}
                 <div className="space-y-6">
+                    {/* Account Type Card */}
+                    <section className={`glass-card overflow-hidden ${premium
+                        ? 'ring-2 ring-amber-400/60 shadow-lg shadow-amber-100'
+                        : 'ring-1 ring-gray-100'
+                        }`}>
+                        {/* Header */}
+                        <div className={`p-5 ${premium
+                            ? 'bg-gradient-to-br from-amber-400 via-yellow-400 to-orange-400'
+                            : 'bg-gradient-to-br from-slate-600 to-slate-700'
+                            }`}>
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    {premium
+                                        ? <Crown className="w-5 h-5 text-amber-900" />
+                                        : <Star className="w-5 h-5 text-slate-300" />
+                                    }
+                                    <span className={`text-xs font-black uppercase tracking-widest ${premium ? 'text-amber-900' : 'text-slate-300'}`}>
+                                        Account Type
+                                    </span>
+                                </div>
+                            </div>
+                            <div className="mt-3">
+                                <p className={`text-2xl font-black ${premium ? 'text-amber-950' : 'text-white'}`}>
+                                    {premium ? '✦ Premium' : 'Standard'}
+                                </p>
+                                <p className={`text-xs font-semibold mt-1 ${premium ? 'text-amber-800' : 'text-slate-400'}`}>
+                                    {premium ? 'Full access — No limits' : 'Limited access — Upgrade to unlock more'}
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Feature List */}
+                        <div className="p-5 space-y-3">
+                            {[
+                                {
+                                    icon: FileText,
+                                    label: 'Bills per month',
+                                    value: premium ? 'Unlimited' : 'Up to 5 bills',
+                                    premium: premium
+                                },
+                                {
+                                    icon: Users,
+                                    label: 'Users per bill',
+                                    value: premium ? 'Unlimited' : 'Up to 3 people',
+                                    premium: premium
+                                },
+                                {
+                                    icon: User,
+                                    label: 'Guest users',
+                                    value: 'Supported',
+                                    premium: null // both tiers
+                                },
+                                {
+                                    icon: Zap,
+                                    label: 'Priority features',
+                                    value: premium ? 'Included' : 'Not available',
+                                    premium: premium ? true : false
+                                }
+                            ].map((item, i) => (
+                                <div key={i} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+                                    <div className="flex items-center gap-2 text-gray-500">
+                                        <item.icon className="w-4 h-4" />
+                                        <span className="text-xs font-semibold">{item.label}</span>
+                                    </div>
+                                    <span className={`text-xs font-black ${item.premium === null
+                                        ? 'text-green-600'
+                                        : item.premium
+                                            ? 'text-amber-600'
+                                            : 'text-gray-400'
+                                        }`}>
+                                        {item.value}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Upgrade CTA for Standard users */}
+                        {!premium && (
+                            <div className="px-5 pb-5">
+                                <button className="w-full py-3 bg-gradient-to-r from-amber-400 to-orange-400 text-amber-950 font-black text-xs uppercase tracking-widest rounded-xl hover:from-amber-300 hover:to-orange-300 transition-all shadow-md shadow-amber-100 flex items-center justify-center gap-2">
+                                    <Crown className="w-4 h-4" />
+                                    Upgrade to Premium
+                                </button>
+                            </div>
+                        )}
+
+                        {premium && (
+                            <div className="px-5 pb-5">
+                                <div className="flex items-center gap-2 p-3 bg-amber-50 rounded-xl border border-amber-100">
+                                    <CheckCircle2 className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                                    <p className="text-xs font-semibold text-amber-700">You're on the Premium plan. Enjoy all features!</p>
+                                </div>
+                            </div>
+                        )}
+                    </section>
+
+                    {/* Security */}
                     <section className="glass-card p-6">
-                        <div className="flex items-center gap-3 mb-6">
+                        <div className="flex items-center gap-3 mb-4">
                             <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
                                 <Shield className="w-5 h-5" />
                             </div>
                             <h3 className="font-bold text-gray-900">Security</h3>
                         </div>
-                        <button 
+                        <button
                             onClick={() => setShowPasswordModal(true)}
-                            className="w-full py-3 border border-gray-100 rounded-xl text-sm font-bold text-gray-700 hover:bg-gray-50 transition-all mb-3 text-left px-4 flex justify-between items-center"
+                            className="w-full py-3 border border-gray-100 rounded-xl text-sm font-bold text-gray-700 hover:bg-gray-50 transition-all text-left px-4 flex justify-between items-center"
                         >
-                            Change Password
+                            <span className="flex items-center gap-2">
+                                <Lock className="w-4 h-4 text-gray-400" />
+                                Change Password
+                            </span>
                             <span className="text-indigo-600">→</span>
-                        </button>
-                        <button className="w-full py-3 border border-gray-100 rounded-xl text-sm font-bold text-gray-700 hover:bg-gray-50 transition-all text-left px-4 flex justify-between items-center">
-                            Two-Factor Auth
-                            <span className="text-gray-300 text-[10px]">INACTIVE</span>
                         </button>
                     </section>
 
-                    <section className="glass-card p-6">
-                        <div className="flex items-center gap-3 mb-6">
-                            <div className="p-2 bg-purple-50 text-purple-600 rounded-lg">
-                                <Smartphone className="w-5 h-5" />
-                            </div>
-                            <h3 className="font-bold text-gray-900">Mobile App</h3>
-                        </div>
-                        <p className="text-xs text-gray-500 mb-6 font-medium">Download our mobile app for better experience and instant push notifications.</p>
-                        <button className="w-full py-3 bg-gray-900 text-white rounded-xl text-xs font-black transition-all hover:bg-gray-800">
-                            Get the App
-                        </button>
-                    </section>
                 </div>
             </div>
+
 
             {/* Change Password Modal */}
             {showPasswordModal && (
@@ -282,7 +388,7 @@ const SettingsPage: React.FC = () => {
                                 <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-1">Keep your account secure</p>
                             </div>
                         </div>
-                        
+
                         <form onSubmit={handleChangePassword} className="space-y-4">
                             <div>
                                 <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Current Password</label>
@@ -290,7 +396,7 @@ const SettingsPage: React.FC = () => {
                                     type="password"
                                     required
                                     value={passwordData.currentPassword}
-                                    onChange={(e) => setPasswordData({...passwordData, currentPassword: e.target.value})}
+                                    onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
                                     className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium text-gray-900"
                                     placeholder="••••••••"
                                 />
@@ -301,7 +407,7 @@ const SettingsPage: React.FC = () => {
                                     type="password"
                                     required
                                     value={passwordData.newPassword}
-                                    onChange={(e) => setPasswordData({...passwordData, newPassword: e.target.value})}
+                                    onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
                                     className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium text-gray-900"
                                     placeholder="••••••••"
                                     minLength={6}
@@ -313,13 +419,13 @@ const SettingsPage: React.FC = () => {
                                     type="password"
                                     required
                                     value={passwordData.confirmNewPassword}
-                                    onChange={(e) => setPasswordData({...passwordData, confirmNewPassword: e.target.value})}
+                                    onChange={(e) => setPasswordData({ ...passwordData, confirmNewPassword: e.target.value })}
                                     className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium text-gray-900"
                                     placeholder="••••••••"
                                     minLength={6}
                                 />
                             </div>
-                            
+
                             <div className="flex gap-3 pt-4 border-t border-gray-50 mt-6">
                                 <button
                                     type="button"

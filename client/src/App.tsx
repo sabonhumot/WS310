@@ -8,7 +8,6 @@ import RegisterPage from './pages/RegisterPage.tsx';
 import DashboardPage from './pages/DashboardPage.tsx';
 import VerifyPage from './pages/VerifyPage.tsx';
 import ActivityPage from './pages/ActivityPage.tsx';
-import GroupsPage from './pages/GroupsPage.tsx';
 import SettingsPage from './pages/SettingsPage.tsx';
 import BillsPage from './pages/BillsPage.tsx';
 import ArchivePage from './pages/ArchivePage.tsx';
@@ -33,9 +32,10 @@ const Landing: React.FC = () => {
         try {
             const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
             const response = await fetch(`${API_URL}/bills/invite/${code}`);
-            
+
             if (response.ok) {
-                navigate(`/invite?code=${code}`);
+                const data = await response.json();
+                navigate(`/invite?token=${data.share_token}`);
             } else {
                 toast.error("Invalid invitation code. Please try again.");
             }
@@ -99,7 +99,7 @@ const Landing: React.FC = () => {
                         <div className="glass-card p-10 space-y-8 overflow-hidden relative">
                             <div className="flex justify-between items-start">
                                 <div>
-                                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Example Bill</p>
+                                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Bill</p>
                                     <h3 className="text-2xl font-bold text-gray-900">Dinner at Ribshack</h3>
                                 </div>
                                 <div className="bg-green-50 text-green-700 px-3 py-1 rounded-lg text-sm font-bold flex items-center gap-1">
@@ -196,24 +196,26 @@ const GuestRoute: React.FC<{ element: React.ReactNode }> = ({ element }) => {
 };
 
 const AppContent: React.FC = () => {
+    const { isGuestLoggedIn } = useAuth();
+    const shouldHideNavbar = isGuestLoggedIn;
+
     return (
         <div className="min-h-screen">
             <Toaster position="top-right" />
             <Routes>
                 <Route path="/" element={<PublicRoute element={<Landing />} />} />
-                <Route path="/login" element={<PublicRoute element={<><Navbar /><LoginPage /></>} />} />
-                <Route path="/register" element={<PublicRoute element={<><Navbar /><RegisterPage /></>} />} />
-                <Route path="/verify" element={<PublicRoute element={<><Navbar /><VerifyPage /></>} />} />
-                <Route path="/forgot-password" element={<PublicRoute element={<><Navbar /><ForgotPasswordPage /></>} />} />
-                <Route path="/reset-password" element={<PublicRoute element={<><Navbar /><ResetPasswordPage /></>} />} />
-                <Route path="/invite" element={<><Navbar /><InvitePage /></>} />
-                
+                <Route path="/login" element={<PublicRoute element={<>{!shouldHideNavbar && <Navbar />}<LoginPage /></>} />} />
+                <Route path="/register" element={<PublicRoute element={<>{!shouldHideNavbar && <Navbar />}<RegisterPage /></>} />} />
+                <Route path="/verify" element={<PublicRoute element={<>{!shouldHideNavbar && <Navbar />}<VerifyPage /></>} />} />
+                <Route path="/forgot-password" element={<PublicRoute element={<>{!shouldHideNavbar && <Navbar />}<ForgotPasswordPage /></>} />} />
+                <Route path="/reset-password" element={<PublicRoute element={<>{!shouldHideNavbar && <Navbar />}<ResetPasswordPage /></>} />} />
+                <Route path="/invite" element={<>{!shouldHideNavbar && <Navbar />}<InvitePage /></>} />
+
                 {/* Protected Routes with DashboardLayout */}
                 <Route element={<ProtectedRoute element={<DashboardLayout />} />}>
                     <Route path="/dashboard" element={<DashboardPage />} />
                     <Route path="/archive" element={<ArchivePage />} />
                     <Route path="/activity" element={<ActivityPage />} />
-                    <Route path="/groups" element={<GroupsPage />} />
                     <Route path="/settings" element={<SettingsPage />} />
                 </Route>
 

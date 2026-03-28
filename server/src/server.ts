@@ -58,7 +58,7 @@ app.post("/api/register", async (req: Request, res: Response) => {
             "INSERT INTO users (first_name, last_name, nickname, email, username, password_hash, user_type_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
             [firstName, lastName, nickname, email, username, hashedPassword, 1]
         ) as any[];
-        
+
         const userId = insertUserResult.insertId;
         console.log('✓ User created with ID:', userId);
 
@@ -118,18 +118,18 @@ app.get("/api/verify", async (req: Request, res: Response) => {
     }
 
     try {
-        console.log('\n=== EMAIL VERIFICATION REQUEST ===' );
+        console.log('\n=== EMAIL VERIFICATION REQUEST ===');
         console.log('Token received:', token);
-        
+
         // Check if token exists and is not expired
         const [verificationRecords] = await db.query(
             "SELECT id, user_id, expires_at, verified_at FROM email_verifications WHERE token = ?",
             [token]
         ) as any[];
-        
+
         console.log('Database query executed');
         console.log('Records found:', verificationRecords?.length);
-        
+
         if (!verificationRecords || verificationRecords.length === 0) {
             console.log('✗ No verification record found for token');
             return res.status(400).json({ message: "Invalid or expired verification token" });
@@ -139,7 +139,7 @@ app.get("/api/verify", async (req: Request, res: Response) => {
         console.log('✓ Verification record found for user_id:', verificationRecord.user_id);
         console.log('  Already verified:', verificationRecord.verified_at ? 'Yes' : 'No');
         console.log('  Expires at:', verificationRecord.expires_at);
-        
+
         // Check if token is expired
         if (new Date() > new Date(verificationRecord.expires_at)) {
             console.log('✗ Token has expired');
@@ -151,7 +151,7 @@ app.get("/api/verify", async (req: Request, res: Response) => {
             console.log('✓ Email already verified');
             return res.status(200).json({ message: "Email already verified" });
         }
-        
+
         // Update verification record
         const [updateVerificationResult] = await db.query(
             "UPDATE email_verifications SET verified_at = NOW() WHERE id = ?",
@@ -224,6 +224,30 @@ const generateInviteCode = () => {
 
 // ==================== BILLS ENDPOINTS ====================
 
+// Helper function to enrich bills with expenses and involved persons data
+async function enrichBills(billsToEnrich: any[]) {
+    return Promise.all(billsToEnrich.map(async (b) => {
+        const [[{cnt}]] = await db.query("SELECT COUNT(*) as cnt FROM expenses WHERE bill_id = ?", [b.id]) as any[];
+        
+        const [recent] = await db.query("SELECT expense_name as name, total_amount as amount FROM expenses WHERE bill_id = ? ORDER BY created_at DESC LIMIT 2", [b.id]) as any[];
+        
+        const [inv] = await db.query(`
+            SELECT COALESCE(u.nickname, u.first_name, g.nickname, g.first_name) as name 
+            FROM involved_persons ip 
+            LEFT JOIN users u ON ip.user_id = u.id 
+            LEFT JOIN guest_users g ON ip.guest_user_id = g.id 
+            WHERE ip.bill_id = ?
+        `, [b.id]) as any[];
+
+        return {
+            ...b,
+            expense_count: cnt,
+            recent_expenses: JSON.stringify(recent),
+            involved_names: JSON.stringify(inv.map((i: any) => i.name))
+        };
+    }));
+}
+
 // Create a new bill
 app.post("/api/bills", async (req: Request, res: Response) => {
     const { created_by, bill_name, invite_code, involved_persons } = req.body;
@@ -258,9 +282,11 @@ app.post("/api/bills", async (req: Request, res: Response) => {
         }
 
         const finalInviteCode = invite_code || generateInviteCode();
+        const shareToken = crypto.randomUUID();
+
         const [result] = await db.query(
-            "INSERT INTO bills (created_by, bill_name, invite_code) VALUES (?, ?, ?)",
-            [created_by, bill_name, finalInviteCode]
+            "INSERT INTO bills (created_by, bill_name, invite_code, share_token) VALUES (?, ?, ?, ?)",
+            [created_by, bill_name, finalInviteCode, shareToken]
         ) as any[];
 
         const billId = result.insertId;
@@ -275,7 +301,7 @@ app.post("/api/bills", async (req: Request, res: Response) => {
                         [person.first_name, person.last_name, person.nickname, person.email]
                     ) as any[];
                     const guestId = guestResult.insertId;
-                    
+
                     await db.query(
                         "INSERT INTO involved_persons (bill_id, guest_user_id) VALUES (?, ?)",
                         [billId, guestId]
@@ -324,7 +350,8 @@ app.get("/api/bills/:userId", async (req: Request, res: Response) => {
             ORDER BY b.created_at DESC
         `, [userId, userId]) as any[];
 
-        res.status(200).json({ bills });
+        const enrichedBills = await enrichBills(bills);
+        res.status(200).json({ bills: enrichedBills });
     } catch (error: any) {
         console.error("Error fetching bills:", error.message);
         res.status(500).json({ message: "Internal server error" });
@@ -343,7 +370,8 @@ app.get("/api/guests/:guestId/bills", async (req: Request, res: Response) => {
             ORDER BY b.created_at DESC
         `, [guestId]) as any[];
 
-        res.status(200).json({ bills });
+        const enrichedBills = await enrichBills(bills);
+        res.status(200).json({ bills: enrichedBills });
     } catch (error: any) {
         console.error("Error fetching guest bills:", error.message);
         res.status(500).json({ message: "Internal server error" });
@@ -362,7 +390,8 @@ app.get("/api/bills/:userId/archived", async (req: Request, res: Response) => {
             ORDER BY b.archived_at DESC
         `, [userId, userId]) as any[];
 
-        res.status(200).json({ bills });
+        const enrichedBills = await enrichBills(bills);
+        res.status(200).json({ bills: enrichedBills });
     } catch (error: any) {
         console.error("Error fetching archived bills:", error.message);
         res.status(500).json({ message: "Internal server error" });
@@ -377,7 +406,7 @@ app.get("/api/bills/:billId/details", async (req: Request, res: Response) => {
         const [bills] = await db.query("SELECT * FROM bills WHERE id = ?", [billId]) as any[];
 
         if (!bills.length) {
-            return res.status(404).json({ message: "Bill not found" });
+            return res.status(404).json({ message: "Bill found" });
         }
 
         // Get involved persons
@@ -410,7 +439,7 @@ app.get("/api/bills/:billId/details", async (req: Request, res: Response) => {
 
         const expenses = await Promise.all(expensesRaw.map(async (e: any) => {
             const [splits] = await db.query(
-                "SELECT user_id, guest_user_id FROM expense_splits WHERE expense_id = ?",
+                "SELECT user_id, guest_user_id, amount FROM expense_splits WHERE expense_id = ?",
                 [e.id]
             ) as any[];
 
@@ -421,18 +450,118 @@ app.get("/api/bills/:billId/details", async (req: Request, res: Response) => {
                 total_amount: parseFloat(e.total_amount),
                 paid_by_id: e.paid_by_guest_id ? `guest_${e.paid_by_guest_id}` : e.paid_by_user_id,
                 split_type: e.split_type,
+                splits: splits.map((s: any) => ({
+                    user_id: s.user_id,
+                    guest_user_id: s.guest_user_id,
+                    amount: parseFloat(s.amount)
+                })),
                 involved_person_ids: splits.map((s: any) => s.guest_user_id ? `guest_${s.guest_user_id}` : s.user_id),
                 created_at: e.created_at
             };
         }));
 
+        // Get settlements
+        const [settlementsRaw] = await db.query(`
+            SELECT s.* FROM settlements s
+            WHERE s.bill_id = ?
+            ORDER BY s.created_at DESC
+        `, [billId]) as any[];
+
+        const settlements = settlementsRaw.map((s: any) => ({
+            id: s.id,
+            bill_id: s.bill_id,
+            paid_by_id: s.paid_by_guest_id ? `guest_${s.paid_by_guest_id}` : s.paid_by_user_id,
+            paid_to_id: s.paid_to_guest_id ? `guest_${s.paid_to_guest_id}` : s.paid_to_user_id,
+            amount: parseFloat(s.amount),
+            created_at: s.created_at
+        }));
+
         res.status(200).json({
             bill: bills[0],
             involvedPersons,
-            expenses
+            expenses,
+            settlements
         });
     } catch (error: any) {
         console.error("Error fetching bill details:", error.message);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
+// Get bill by token (for invite links)
+app.get("/api/bills/token/:token", async (req: Request, res: Response) => {
+    const { token } = req.params;
+
+    try {
+        const [bills] = await db.query("SELECT id, bill_name FROM bills WHERE share_token = ?", [token]) as any[];
+
+        if (bills.length === 0) {
+            return res.status(404).json({ message: "Invalid or expired invite link" });
+        }
+
+        res.status(200).json({ bill: bills[0] });
+    } catch (error: any) {
+        console.error("Error fetching bill by token:", error.message);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
+// Add person to a bill (Registered or Guest)
+app.post("/api/bills/:billId/involved-persons", async (req: Request, res: Response) => {
+    const { billId } = req.params;
+    const { user_id, guest_user_id, guest_data, created_by } = req.body;
+
+    try {
+        let finalUserId = user_id || null;
+        let finalGuestId = guest_user_id || null;
+
+        // If manual guest data is provided, determine if it's a new or existing guest
+        if (guest_data) {
+            const { first_name, last_name, nickname, email } = guest_data;
+
+            // Check if email belongs to a registered user first
+            const [users] = await db.query("SELECT id FROM users WHERE email = ?", [email]) as any[];
+            if (users.length > 0) {
+                finalUserId = users[0].id;
+                finalGuestId = null;
+            } else {
+                // Check if email belongs to an existing guest user
+                const [existingGuests] = await db.query("SELECT id FROM guest_users WHERE email = ?", [email]) as any[];
+                if (existingGuests.length > 0) {
+                    finalGuestId = existingGuests[0].id;
+                    // Update existing guest nickname if provided
+                    if (nickname) {
+                        await db.query("UPDATE guest_users SET nickname = ? WHERE id = ?", [nickname, finalGuestId]);
+                    }
+                } else {
+                    // Create New Guest User
+                    const [guestResult] = await db.query(
+                        "INSERT INTO guest_users (first_name, last_name, nickname, email) VALUES (?, ?, ?, ?)",
+                        [first_name, last_name, nickname, email]
+                    ) as any[];
+                    finalGuestId = guestResult.insertId;
+                }
+            }
+        }
+
+        // Check if already in bill to avoid duplicates
+        const [existing] = await db.query(
+            "SELECT id FROM involved_persons WHERE bill_id = ? AND (user_id <=> ? AND guest_user_id <=> ?)",
+            [billId, finalUserId, finalGuestId]
+        ) as any[];
+
+        if (existing.length > 0) {
+            return res.status(400).json({ message: "This person is already added to the bill." });
+        }
+
+        await db.query(
+            "INSERT INTO involved_persons (bill_id, user_id, guest_user_id) VALUES (?, ?, ?)",
+            [billId, finalUserId, finalGuestId]
+        );
+
+        res.status(201).json({ message: "Person added to bill successfully" });
+    } catch (error: any) {
+        console.error("Error adding person to bill:", error.message);
         res.status(500).json({ message: "Internal server error" });
     }
 });
@@ -447,6 +576,71 @@ app.put("/api/bills/:billId", async (req: Request, res: Response) => {
         res.status(200).json({ message: "Bill updated successfully" });
     } catch (error: any) {
         console.error("Error updating bill:", error.message);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
+// Record a settlement (Payment)
+app.post("/api/bills/:billId/settlements", async (req: Request, res: Response) => {
+    const { billId } = req.params;
+    const { paid_by_id, paid_to_id, amount } = req.body;
+
+    try {
+        const isPaidByGuest = typeof paid_by_id === 'string' && paid_by_id.startsWith('guest_');
+        const paidByUserId = isPaidByGuest ? null : paid_by_id;
+        const paidByGuestId = isPaidByGuest ? parseInt(paid_by_id.replace('guest_', '')) : null;
+
+        const isPaidToGuest = typeof paid_to_id === 'string' && paid_to_id.startsWith('guest_');
+        const paidToUserId = isPaidToGuest ? null : paid_to_id;
+        const paidToGuestId = isPaidToGuest ? parseInt(paid_to_id.replace('guest_', '')) : null;
+
+        await db.query(
+            "INSERT INTO settlements (bill_id, paid_by_user_id, paid_by_guest_id, paid_to_user_id, paid_to_guest_id, amount) VALUES (?, ?, ?, ?, ?, ?)",
+            [billId, paidByUserId, paidByGuestId, paidToUserId, paidToGuestId, amount]
+        );
+
+        res.status(201).json({ message: "Payment recorded successfully" });
+    } catch (error: any) {
+        console.error("Error recording settlement:", error.message);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
+// Edit an expense
+app.put("/api/expenses/:expenseId", async (req: Request, res: Response) => {
+    const { expenseId } = req.params;
+    const { expense_name, total_amount, paid_by, split_type, split_with } = req.body;
+
+    try {
+        const isGuest = typeof paid_by === 'string' && paid_by.startsWith('guest_');
+        const paidByUserId = isGuest ? null : paid_by;
+        const paidByGuestId = isGuest ? parseInt(paid_by.replace('guest_', '')) : null;
+
+        await db.query(
+            "UPDATE expenses SET expense_name = ?, total_amount = ?, paid_by_user_id = ?, paid_by_guest_id = ?, split_type = ? WHERE id = ?",
+            [expense_name, total_amount, paidByUserId, paidByGuestId, split_type, expenseId]
+        );
+
+        // Delete old splits
+        await db.query("DELETE FROM expense_splits WHERE expense_id = ?", [expenseId]);
+
+        // Re-insert new splits
+        const splitAmount = split_type === 'equally' ? total_amount / split_with.length : 0;
+        
+        for (const personId of split_with) {
+            const isGuestSplit = typeof personId === 'string' && personId.startsWith('guest_');
+            const splitUserId = isGuestSplit ? null : personId;
+            const splitGuestId = isGuestSplit ? parseInt(personId.replace('guest_', '')) : null;
+            
+            await db.query(
+                "INSERT INTO expense_splits (expense_id, user_id, guest_user_id, amount) VALUES (?, ?, ?, ?)",
+                [expenseId, splitUserId, splitGuestId, splitAmount]
+            );
+        }
+
+        res.status(200).json({ message: "Expense updated successfully" });
+    } catch (error: any) {
+        console.error("Error updating expense:", error.message);
         res.status(500).json({ message: "Internal server error" });
     }
 });
@@ -590,30 +784,35 @@ app.get("/api/bills/invite/:code", async (req: Request, res: Response) => {
     }
 
     try {
-        const [bills] = await db.query("SELECT id FROM bills WHERE invite_code = ?", [code]) as any[];
-        
+        const [bills] = await db.query("SELECT id, share_token FROM bills WHERE invite_code = ?", [code]) as any[];
+
         if (bills.length === 0) {
             return res.status(404).json({ message: "Invalid invite code" });
         }
 
-        res.status(200).json({ valid: true, billId: bills[0].id });
+        res.status(200).json({ valid: true, billId: bills[0].id, share_token: bills[0].share_token });
     } catch (error: any) {
         console.error("Invite code validation error:", error.message);
         res.status(500).json({ message: "Internal server error" });
     }
 });
 
-// Guest Join Route via Invite Code
+// Guest Join Route via Invite Code OR Token
 app.post("/api/bills/join", async (req: Request, res: Response) => {
-    const { invite_code, first_name, last_name, email } = req.body;
+    const { invite_code, share_token, first_name, last_name, email, nickname } = req.body;
 
-    if (!invite_code || !first_name || !last_name || !email) {
-        return res.status(400).json({ message: "Invite code, name, and email are required" });
+    if ((!invite_code && !share_token) || !first_name || !last_name || !email || !nickname) {
+        return res.status(400).json({ message: "Identifier (code or token) and user details are required" });
     }
 
     try {
-        const [bills] = await db.query("SELECT id, created_by FROM bills WHERE invite_code = ?", [invite_code]) as any[];
-        
+        let bills: any[] = [];
+        if (share_token) {
+            [bills] = await db.query("SELECT id, created_by FROM bills WHERE share_token = ?", [share_token]) as any[];
+        } else {
+            [bills] = await db.query("SELECT id, created_by FROM bills WHERE invite_code = ?", [invite_code]) as any[];
+        }
+
         if (bills.length === 0) {
             return res.status(404).json({ message: "Invalid invite code" });
         }
@@ -631,7 +830,7 @@ app.post("/api/bills/join", async (req: Request, res: Response) => {
 
         // Check if email belongs to a registered user
         const [users] = await db.query("SELECT * FROM users WHERE email = ?", [email]) as any[];
-        
+
         let guestUserId = null;
         let registeredUserId = null;
         let isRegistered = false;
@@ -656,10 +855,10 @@ app.post("/api/bills/join", async (req: Request, res: Response) => {
         } else {
             // Check if email belongs to an existing guest user
             const [existingGuests] = await db.query("SELECT * FROM guest_users WHERE email = ?", [email]) as any[];
-            
+
             if (existingGuests.length > 0) {
                 guestUserId = existingGuests[0].id;
-                
+
                 // Ensure they are attached to the bill
                 const [existingIP] = await db.query(
                     "SELECT id FROM involved_persons WHERE bill_id = ? AND guest_user_id = ?",
@@ -674,8 +873,6 @@ app.post("/api/bills/join", async (req: Request, res: Response) => {
                 }
             } else {
                 // Create New Guest User
-                const nickname = first_name;
-
                 const [guestResult] = await db.query(
                     "INSERT INTO guest_users (first_name, last_name, nickname, email) VALUES (?, ?, ?, ?)",
                     [first_name, last_name, nickname, email]
@@ -696,7 +893,7 @@ app.post("/api/bills/join", async (req: Request, res: Response) => {
             return res.status(200).json({
                 message: "You have been added to the bill! Please log in to view changes.",
                 isRegistered: true,
-                requiresLogin: true, 
+                requiresLogin: true,
                 billId: bill.id
             });
         }
@@ -707,7 +904,7 @@ app.post("/api/bills/join", async (req: Request, res: Response) => {
                 id: guestUserId,
                 first_name,
                 last_name,
-                nickname: first_name,
+                nickname,
                 email,
                 is_guest: true
             },
@@ -716,6 +913,90 @@ app.post("/api/bills/join", async (req: Request, res: Response) => {
 
     } catch (error: any) {
         console.error("Guest join error:", error.message);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
+// Get bills for a guest
+app.get("/api/guests/:guestId/bills", async (req: Request, res: Response) => {
+    const { guestId } = req.params;
+
+    try {
+        const query = `
+            SELECT b.*, u.username as creator_name,
+            (SELECT SUM(amount) FROM expenses WHERE bill_id = b.id) as total_amount,
+            (SELECT COUNT(*) FROM involved_persons WHERE bill_id = b.id) as members_count
+            FROM bills b
+            JOIN users u ON b.created_by = u.id
+            JOIN involved_persons ip ON b.id = ip.bill_id
+            WHERE ip.guest_user_id = ?
+            ORDER BY b.created_at DESC
+        `;
+
+        const [bills] = await db.query(query, [guestId]) as any[];
+        res.status(200).json({ bills });
+    } catch (error: any) {
+        console.error("Fetch guest bills error:", error.message);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
+// Remove person from a bill
+app.delete("/api/bills/:billId/persons/:personId", async (req: Request, res: Response) => {
+    const { billId, personId } = req.params;
+
+    try {
+        const isGuest = typeof personId === 'string' && personId.startsWith('guest_');
+        const userId = isGuest ? null : personId;
+        const guestId = isGuest ? parseInt(personId.replace('guest_', '')) : null;
+
+        // Verify they aren't the creator of the bill
+        const [bills] = await db.query("SELECT created_by FROM bills WHERE id = ?", [billId]) as any[];
+        if (bills.length > 0 && bills[0].created_by == userId) {
+            return res.status(400).json({ message: "Cannot remove the host of the bill." });
+        }
+
+        // Safety check: Do they have any expenses where they paid?
+        const [paidExpenses] = await db.query(
+            "SELECT id FROM expenses WHERE bill_id = ? AND (paid_by_user_id = ? OR paid_by_guest_id = ?)",
+            [billId, userId, guestId]
+        ) as any[];
+
+        if (paidExpenses.length > 0) {
+            return res.status(400).json({ message: "Cannot remove this person because they have paid for expenses in this bill." });
+        }
+
+        // Safety check: Are they involved in any expense splits?
+        const [splitExpenses] = await db.query(
+            "SELECT es.id FROM expense_splits es JOIN expenses e ON es.expense_id = e.id WHERE e.bill_id = ? AND (es.user_id = ? OR es.guest_user_id = ?)",
+            [billId, userId, guestId]
+        ) as any[];
+
+        if (splitExpenses.length > 0) {
+            return res.status(400).json({ message: "Cannot remove this person because they are involved in splitting an expense." });
+        }
+
+        // Safety check: Are they involved in any settlements?
+        const [settlements] = await db.query(
+            "SELECT id FROM settlements WHERE bill_id = ? AND (paid_by_user_id = ? OR paid_by_guest_id = ? OR paid_to_user_id = ? OR paid_to_guest_id = ?)",
+            [billId, userId, guestId, userId, guestId]
+        ) as any[];
+
+        if (settlements.length > 0) {
+            return res.status(400).json({ message: "Cannot remove this person because they have recorded payment settlements in this bill." });
+        }
+
+        // Safe to delete
+        if (isGuest) {
+            await db.query("DELETE FROM involved_persons WHERE bill_id = ? AND guest_user_id = ?", [billId, guestId]);
+        } else {
+            await db.query("DELETE FROM involved_persons WHERE bill_id = ? AND user_id = ?", [billId, userId]);
+        }
+
+        res.status(200).json({ message: "Person removed successfully." });
+
+    } catch (error: any) {
+        console.error("Remove person error:", error.message);
         res.status(500).json({ message: "Internal server error" });
     }
 });
@@ -731,7 +1012,7 @@ app.post("/api/users/upgrade-guest", async (req: Request, res: Response) => {
     try {
         // Double check guest exists
         const [guests] = await db.query("SELECT * FROM guest_users WHERE id = ?", [guest_id]) as any[];
-        
+
         if (guests.length === 0) {
             return res.status(404).json({ message: "Guest session expired or not found" });
         }
@@ -756,7 +1037,7 @@ app.post("/api/users/upgrade-guest", async (req: Request, res: Response) => {
             "INSERT INTO users (first_name, last_name, nickname, email, username, password_hash, email_verified, user_type_id) VALUES (?, ?, ?, ?, ?, ?, 1, 1)",
             [first_name, last_name, first_name, email, username, hashedPassword]
         ) as any[];
-        
+
         const newUserId = userResult.insertId;
 
         // Transfer records from guest_user_id to user_id
@@ -790,11 +1071,11 @@ app.get("/api/users/search", async (req: Request, res: Response) => {
     try {
         const query = `%${q}%`;
         const [users] = await db.query(`
-            SELECT id, nickname, username, first_name, last_name, email, 0 as is_guest 
+            SELECT id, COALESCE(nickname, first_name) as nickname, username, first_name, last_name, email, 0 as is_guest 
             FROM users 
             WHERE nickname LIKE ? OR username LIKE ? OR first_name LIKE ? OR last_name LIKE ? OR email LIKE ?
-            UNION
-            SELECT id, nickname, NULL as username, first_name, last_name, email, 1 as is_guest 
+            UNION ALL
+            SELECT id, COALESCE(nickname, first_name) as nickname, NULL as username, first_name, last_name, email, 1 as is_guest 
             FROM guest_users 
             WHERE nickname LIKE ? OR first_name LIKE ? OR last_name LIKE ? OR email LIKE ?
             LIMIT 10
@@ -810,25 +1091,37 @@ app.get("/api/users/search", async (req: Request, res: Response) => {
 // Update user profile
 app.put("/api/users/:userId", async (req: Request, res: Response) => {
     const { userId } = req.params;
-    const { first_name, last_name, nickname } = req.body;
+    const { first_name, last_name, nickname, email, username } = req.body;
 
-    if (!first_name || !last_name || !nickname) {
+    if (!first_name || !last_name || !nickname || !email || !username) {
         return res.status(400).json({ message: "All fields are required" });
     }
 
     try {
+        // Check if new email or username is already taken by another user
+        const [existingUsers] = await db.query(
+            "SELECT email, username FROM users WHERE (email = ? OR username = ?) AND id != ?",
+            [email, username, userId]
+        ) as any[];
+
+        if (existingUsers.length > 0) {
+            const conflict = existingUsers[0];
+            if (conflict.email === email) return res.status(400).json({ message: "Email already in use" });
+            if (conflict.username === username) return res.status(400).json({ message: "Username already taken" });
+        }
+
         await db.query(
-            "UPDATE users SET first_name = ?, last_name = ?, nickname = ? WHERE id = ?",
-            [first_name, last_name, nickname, userId]
+            "UPDATE users SET first_name = ?, last_name = ?, nickname = ?, email = ?, username = ? WHERE id = ?",
+            [first_name, last_name, nickname, email, username, userId]
         );
-        
+
         // Fetch updated user
         const [users] = await db.query("SELECT * FROM users WHERE id = ?", [userId]) as any[];
-        
+
         if (users.length === 0) {
             return res.status(404).json({ message: "User not found" });
         }
-        
+
         const { password_hash, ...userWithoutPassword } = users[0];
         res.status(200).json({ message: "Profile updated successfully", user: userWithoutPassword });
     } catch (error: any) {
@@ -898,7 +1191,7 @@ app.post("/api/bills/:billId/expenses", async (req: Request, res: Response) => {
                 const isGuest = typeof pid === 'string' && pid.startsWith('guest_');
                 const uId = isGuest ? null : pid;
                 const gId = isGuest ? parseInt(pid.replace('guest_', '')) : null;
-                
+
                 await db.query(
                     "INSERT INTO expense_splits (expense_id, user_id, guest_user_id, amount) VALUES (?, ?, ?, ?)",
                     [expenseId, uId, gId, splitAmount]
@@ -963,30 +1256,146 @@ app.delete("/api/expenses/:expenseId", async (req: Request, res: Response) => {
     }
 });
 
+// Helper for Summarized Debt & Activity
+async function getDebtActivity(userId: string) {
+    // 1. Get all bills the user is involved in
+    const [bills] = await db.query(`
+        SELECT DISTINCT b.* FROM bills b
+        JOIN involved_persons ip ON b.id = ip.bill_id
+        WHERE (b.created_by = ? OR ip.user_id = ?) AND b.archived_at IS NULL
+    `, [userId, userId]) as any[];
+
+    let activity: any[] = [];
+
+    for (const bill of bills) {
+        // Fetch all involved persons for the names
+        const [ipRaw] = await db.query(`
+            SELECT ip.id as record_id, ip.user_id, ip.guest_user_id, 
+                   u.nickname as user_nickname, u.first_name as user_first, u.last_name as user_last,
+                   g.nickname as guest_nickname, g.first_name as guest_first, g.last_name as guest_last
+            FROM involved_persons ip
+            LEFT JOIN users u ON ip.user_id = u.id
+            LEFT JOIN guest_users g ON ip.guest_user_id = g.id
+            WHERE ip.bill_id = ?
+        `, [bill.id]) as any[];
+
+        const personsMap: Record<string, string> = {};
+        ipRaw.forEach((row: any) => {
+            const id = row.guest_user_id ? `guest_${row.guest_user_id}` : row.user_id;
+            personsMap[String(id)] = row.user_nickname || row.guest_nickname || row.user_first || row.guest_first || "Someone";
+        });
+
+        // Fetch all expenses and their splits for this bill
+        const [expenses] = await db.query("SELECT * FROM expenses WHERE bill_id = ?", [bill.id]) as any[];
+        const [splits] = await db.query(`
+            SELECT es.* FROM expense_splits es 
+            JOIN expenses e ON es.expense_id = e.id 
+            WHERE e.bill_id = ?
+        `, [bill.id]) as any[];
+
+        // Fetch all settlements for this bill
+        const [settlements] = await db.query("SELECT * FROM settlements WHERE bill_id = ?", [bill.id]) as any[];
+
+        // Calculate balances (just like in the frontend calculateDebts function)
+        const pairwiseBalances: Record<string, Record<string, number>> = {};
+        const memberIds = Object.keys(personsMap);
+        memberIds.forEach(id1 => {
+            pairwiseBalances[id1] = {};
+            memberIds.forEach(id2 => { pairwiseBalances[id1][id2] = 0; });
+        });
+
+        // a. Process expenses: payer is owed by splits
+        expenses.forEach((exp: any) => {
+            const payerId = String(exp.paid_by_guest_id ? `guest_${exp.paid_by_guest_id}` : exp.paid_by_user_id);
+            const expSplits = splits.filter((s: any) => s.expense_id === exp.id);
+            expSplits.forEach((split: any) => {
+                const splitUserId = String(split.guest_user_id ? `guest_${split.guest_user_id}` : split.user_id);
+                if (splitUserId === payerId) return;
+                if (pairwiseBalances[splitUserId] && pairwiseBalances[splitUserId][payerId] !== undefined) {
+                    pairwiseBalances[splitUserId][payerId] += Number(split.amount);
+                }
+            });
+        });
+
+        // b. Process settlements: reduces debt
+        settlements.forEach((settle: any) => {
+            const payerId = String(settle.paid_by_guest_id ? `guest_${settle.paid_by_guest_id}` : settle.paid_by_user_id);
+            const payeeId = String(settle.paid_to_guest_id ? `guest_${settle.paid_to_guest_id}` : settle.paid_to_user_id);
+            if (pairwiseBalances[payerId] && pairwiseBalances[payerId][payeeId] !== undefined) {
+                pairwiseBalances[payerId][payeeId] -= Number(settle.amount);
+            }
+        });
+
+        // c. Convert pairwise balances to net debts for the current user
+        const currentUserIdStr = String(userId);
+        memberIds.forEach(otherId => {
+            if (otherId === currentUserIdStr) return;
+            const userOwesOther = pairwiseBalances[currentUserIdStr][otherId] || 0;
+            const otherOwesUser = pairwiseBalances[otherId][currentUserIdStr] || 0;
+            const netAmount = userOwesOther - otherOwesUser;
+
+            if (Math.abs(netAmount) > 0.01) {
+                activity.push({
+                    id: `debt_${bill.id}_${otherId}`,
+                    type: netAmount > 0 ? 'owe' : 'lent',
+                    title: netAmount > 0 ? `You owe ${personsMap[otherId]}` : `${personsMap[otherId]} owes you`,
+                    bill_name: bill.bill_name,
+                    amount: `₱${Math.abs(netAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+                    rawAmount: Math.abs(netAmount),
+                    status: 'Pending',
+                    date: new Date(bill.created_at).toLocaleDateString(),
+                    rawDate: bill.created_at
+                });
+            }
+        });
+
+        // d. Include actual settlement events as activities (sorted by created_at later)
+        settlements.forEach((s: any) => {
+            const payerId = String(s.paid_by_guest_id ? `guest_${s.paid_by_guest_id}` : s.paid_by_user_id);
+            const payeeId = String(s.paid_to_guest_id ? `guest_${s.paid_to_guest_id}` : s.paid_to_user_id);
+            
+            // If the user participated in this settlement
+            if (payerId === currentUserIdStr || payeeId === currentUserIdStr) {
+                const isPayer = payerId === currentUserIdStr;
+                const otherParty = isPayer ? personsMap[payeeId] : personsMap[payerId];
+                activity.push({
+                    id: `settle_${s.id}`,
+                    type: isPayer ? 'owe' : 'lent', // Using same type for consistent coloring
+                    title: isPayer ? `You paid ${otherParty}` : `${otherParty} paid you`,
+                    bill_name: bill.bill_name,
+                    amount: `₱${parseFloat(s.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+                    rawAmount: parseFloat(s.amount),
+                    status: 'Completed',
+                    date: new Date(s.created_at).toLocaleDateString(),
+                    rawDate: s.created_at
+                });
+            }
+        });
+    }
+
+    // Sort all activity by date
+    return activity.sort((a, b) => new Date(b.rawDate).getTime() - new Date(a.rawDate).getTime());
+}
+
 // ==================== DASHBOARD ENDPOINTS ====================
 
 app.get("/api/dashboard/:userId", async (req: Request, res: Response) => {
     const { userId } = req.params;
 
     try {
-        // 1. Calculate stats
-        // Owed to you: amount from splits where I paid but others are involved
-        const [owedToYouResult] = await db.query(`
-            SELECT SUM(es.amount) as total
-            FROM expense_splits es
-            JOIN expenses e ON es.expense_id = e.id
-            WHERE e.paid_by_user_id = ? AND (es.user_id != ? OR es.user_id IS NULL)
-        `, [userId, userId]) as any[];
+        // 1. Calculate stats (Dynamic now!)
+        const activity = await getDebtActivity(userId as string);
+        
+        // Owed to you: sum of 'lent' with 'Pending' status
+        const dynamicOwedToYou = activity
+            .filter(item => item.type === 'lent' && item.status === 'Pending')
+            .reduce((sum, item) => sum + (item.rawAmount || 0), 0);
+            
+        // You owe: sum of 'owe' with 'Pending' status
+        const dynamicYouOwe = activity
+            .filter(item => item.type === 'owe' && item.status === 'Pending')
+            .reduce((sum, item) => sum + (item.rawAmount || 0), 0);
 
-        // You owe: amount from splits where others paid but I am involved
-        const [youOweResult] = await db.query(`
-            SELECT SUM(es.amount) as total
-            FROM expense_splits es
-            JOIN expenses e ON es.expense_id = e.id
-            WHERE (e.paid_by_user_id != ? OR e.paid_by_user_id IS NULL) AND es.user_id = ?
-        `, [userId, userId]) as any[];
-
-        // Active groups/bills
         const [activeBillsResult] = await db.query(`
             SELECT COUNT(DISTINCT b.id) as count
             FROM bills b
@@ -994,35 +1403,16 @@ app.get("/api/dashboard/:userId", async (req: Request, res: Response) => {
             WHERE (b.created_by = ? OR ip.user_id = ?) AND b.archived_at IS NULL
         `, [userId, userId]) as any[];
 
-        // 2. Recent Activity
-        const [recentActivity] = await db.query(`
-            SELECT DISTINCT e.*, b.bill_name,
-                   CASE 
-                     WHEN e.paid_by_user_id = ? THEN 'lent' 
-                     ELSE 'owe' 
-                   END as type
-            FROM expenses e
-            JOIN bills b ON e.bill_id = b.id
-            LEFT JOIN expense_splits es ON e.id = es.expense_id
-            WHERE e.paid_by_user_id = ? OR es.user_id = ?
-            ORDER BY e.created_at DESC
-            LIMIT 5
-        `, [userId, userId, userId]) as any[];
+        // 2. Recent Activity (Summarized)
+        // const activity = await getDebtActivity(userId as string); // This line was moved up
 
         res.status(200).json({
             stats: {
-                owed_to_you: parseFloat(owedToYouResult[0]?.total || 0),
-                you_owe: parseFloat(youOweResult[0]?.total || 0),
+                owed_to_you: dynamicOwedToYou,
+                you_owe: dynamicYouOwe,
                 active_bills: activeBillsResult[0]?.count || 0
             },
-            recentActivity: recentActivity.map((item: any) => ({
-                id: item.id,
-                title: item.expense_name,
-                amount: `₱${parseFloat(item.total_amount).toLocaleString()}`,
-                status: 'Pending', // Simplified for now
-                type: item.type,
-                date: new Date(item.created_at).toLocaleDateString()
-            }))
+            recentActivity: activity.slice(0, 5)
         });
     } catch (error: any) {
         console.error("Error fetching dashboard data:", error.message);
@@ -1036,36 +1426,15 @@ app.get("/api/activity/:userId", async (req: Request, res: Response) => {
     const { userId } = req.params;
 
     try {
-        const [activities] = await db.query(`
-            SELECT DISTINCT e.*, b.bill_name,
-                   CASE 
-                     WHEN e.paid_by_user_id = ? THEN 'lent' 
-                     ELSE 'owe' 
-                   END as type
-            FROM expenses e
-            JOIN bills b ON e.bill_id = b.id
-            LEFT JOIN expense_splits es ON e.id = es.expense_id
-            WHERE e.paid_by_user_id = ? OR es.user_id = ?
-            ORDER BY e.created_at DESC
-        `, [userId, userId, userId]) as any[];
-
-        res.status(200).json({
-            activities: activities.map((item: any) => ({
-                id: item.id,
-                title: item.expense_name,
-                amount: `₱${parseFloat(item.total_amount).toLocaleString()}`,
-                status: 'Pending', // Simplified for now
-                type: item.type,
-                date: new Date(item.created_at).toLocaleDateString()
-            }))
-        });
+        const activity = await getDebtActivity(userId as string);
+        res.status(200).json({ activities: activity });
     } catch (error: any) {
         console.error("Error fetching activity data:", error.message);
         res.status(500).json({ message: "Internal server error" });
     }
 });
 
-// ==================== GROUPS ENDPOINTS ====================
+// ==================== GROUPS ENDPOINTS (RETAINED FOR LEGACY) ====================
 
 app.get("/api/groups/:userId", async (req: Request, res: Response) => {
     const { userId } = req.params;
@@ -1152,7 +1521,7 @@ app.post("/api/forgot-password", async (req: Request, res: Response) => {
 
         const clientUrl = req.headers.origin || 'http://localhost:8111';
         const resetLink = `${clientUrl}/reset-password?token=${token}`;
-        
+
         const mailOptions = {
             from: process.env.EMAIL_USER,
             to: email,
@@ -1178,6 +1547,54 @@ app.post("/api/forgot-password", async (req: Request, res: Response) => {
 
     } catch (error: any) {
         console.error("Forgot password error:", error.message);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
+app.post("/api/users/upgrade-guest", async (req: Request, res: Response) => {
+    const { guest_id, first_name, last_name, nickname, email, username, password } = req.body;
+
+    if (!guest_id || !first_name || !last_name || !email || !password) {
+        return res.status(400).json({ message: "All guest details and a password are required" });
+    }
+
+    try {
+        // 1. Check if email is already in use by a registered user
+        const [existingUsers] = await db.query("SELECT id FROM users WHERE email = ?", [email]) as any[];
+        if (existingUsers.length > 0) {
+            return res.status(400).json({ message: "This email is already associated with a registered account. Please log in instead." });
+        }
+
+        // 2. Create the user
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
+        const finalUsername = username || email.split('@')[0] + Math.floor(Math.random() * 1000);
+        const finalNickname = nickname || first_name;
+
+        const [userResult] = await db.query(
+            "INSERT INTO users (first_name, last_name, nickname, email, username, password_hash, user_type_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [first_name, last_name, finalNickname, email, finalUsername, hashedPassword, 1]
+        ) as any[];
+
+        const newUserId = userResult.insertId;
+
+        // 3. Migrate data from guest to user in critical tables
+        await db.query("UPDATE involved_persons SET user_id = ?, guest_user_id = NULL WHERE guest_user_id = ?", [newUserId, guest_id]);
+        await db.query("UPDATE expenses SET paid_by_user_id = ?, paid_by_guest_id = NULL WHERE paid_by_guest_id = ?", [newUserId, guest_id]);
+        await db.query("UPDATE expense_splits SET user_id = ?, guest_user_id = NULL WHERE guest_user_id = ?", [newUserId, guest_id]);
+
+        // 4. Optionally delete/deactivate guest_user record
+        // await db.query("DELETE FROM guest_users WHERE id = ?", [guest_id]);
+
+        const [newUser] = await db.query("SELECT id, first_name, last_name, nickname, email, username FROM users WHERE id = ?", [newUserId]) as any[];
+
+        res.status(200).json({
+            message: "Account upgraded successfully",
+            user: newUser[0]
+        });
+
+    } catch (error: any) {
+        console.error("Upgrade guest error:", error.message);
         res.status(500).json({ message: "Internal server error" });
     }
 });
