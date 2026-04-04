@@ -58,6 +58,7 @@ export interface Bill {
     invite_code: string;
     share_token: string;
     created_by: number;
+    created_by_user_type_id?: number; // Optional as not always returned
     created_at: string;
     archived_at?: string;
 }
@@ -70,6 +71,7 @@ export interface InvolvedPerson {
     email?: string;
     is_guest: boolean;
     user_id?: number; // link to registered user
+    guest_user_id?: number | string; // link to guest user
 }
 
 export interface Expense {

@@ -4,7 +4,6 @@ import {
     ArrowUpRight,
     ArrowDownLeft,
     Users,
-    PlusCircle,
     ChevronRight
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';

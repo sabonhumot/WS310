@@ -10,10 +10,12 @@ import VerifyPage from './pages/VerifyPage.tsx';
 import ActivityPage from './pages/ActivityPage.tsx';
 import SettingsPage from './pages/SettingsPage.tsx';
 import BillsPage from './pages/BillsPage.tsx';
+import BillDetailPage from './pages/BillDetailPage.tsx';
 import ArchivePage from './pages/ArchivePage.tsx';
 import ForgotPasswordPage from './pages/ForgotPasswordPage.tsx';
 import ResetPasswordPage from './pages/ResetPasswordPage.tsx';
 import InvitePage from './pages/InvitePage.tsx';
+import InviteEmailPage from './pages/InviteEmailPage.tsx';
 import DashboardLayout from './components/common/DashboardLayout.tsx';
 import { Users, Check, CheckCircle2, ArrowRight } from 'lucide-react';
 
@@ -35,7 +37,11 @@ const Landing: React.FC = () => {
 
             if (response.ok) {
                 const data = await response.json();
-                navigate(`/invite?token=${data.share_token}`);
+                if (data.share_token) {
+                    sessionStorage.setItem('pendingShareToken', data.share_token);
+                }
+                sessionStorage.setItem('pendingInviteCode', code);
+                navigate(`/invite-email`);
             } else {
                 toast.error("Invalid invitation code. Please try again.");
             }
@@ -209,6 +215,7 @@ const AppContent: React.FC = () => {
                 <Route path="/verify" element={<PublicRoute element={<>{!shouldHideNavbar && <Navbar />}<VerifyPage /></>} />} />
                 <Route path="/forgot-password" element={<PublicRoute element={<>{!shouldHideNavbar && <Navbar />}<ForgotPasswordPage /></>} />} />
                 <Route path="/reset-password" element={<PublicRoute element={<>{!shouldHideNavbar && <Navbar />}<ResetPasswordPage /></>} />} />
+                <Route path="/invite-email" element={<>{!shouldHideNavbar && <Navbar />}<InviteEmailPage /></>} />
                 <Route path="/invite" element={<>{!shouldHideNavbar && <Navbar />}<InvitePage /></>} />
 
                 {/* Protected Routes with DashboardLayout */}
@@ -222,6 +229,7 @@ const AppContent: React.FC = () => {
                 {/* Guest-Allowed Routes with DashboardLayout */}
                 <Route element={<GuestRoute element={<DashboardLayout />} />}>
                     <Route path="/bills" element={<BillsPage />} />
+                    <Route path="/bills/:billId" element={<BillDetailPage />} />
                 </Route>
             </Routes>
         </div>

@@ -217,6 +217,26 @@ app.post("/api/login", async (req: Request, res: Response) => {
     }
 });
 
+// Check if email is already registered (used for guest invite flow)
+app.post("/api/users/check-email", async (req: Request, res: Response) => {
+    const { email } = req.body;
+    if (!email) {
+        return res.status(400).json({ message: "Email is required" });
+    }
+
+    try {
+        const [users] = await db.query(
+            "SELECT id FROM users WHERE email = ?",
+            [email]
+        ) as any[];
+
+        res.status(200).json({ isRegistered: users.length > 0 });
+    } catch (error: any) {
+        console.error("Check email error:", error.message);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
 // Helper function to generate invite code
 const generateInviteCode = () => {
     return Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -260,10 +280,10 @@ app.post("/api/bills", async (req: Request, res: Response) => {
         // Enforce Standard User Limits
         const [users] = await db.query("SELECT user_type_id FROM users WHERE id = ?", [created_by]) as any[];
         if (users.length && users[0].user_type_id === 1) { // Standard User
-            // Check person limit
+            // Check person limit (1 Creator + 2 Others = 3 total)
             const memberCount = (involved_persons ? involved_persons.length : 0);
-            if (memberCount > 3) {
-                return res.status(403).json({ message: "Standard users can add a maximum of 3 members per bill." });
+            if (memberCount > 2) {
+                return res.status(403).json({ message: "Standard users can add a maximum of 2 members during bill creation (3 total)." });
             }
 
             // Check monthly bill limit
@@ -295,12 +315,22 @@ app.post("/api/bills", async (req: Request, res: Response) => {
         if (involved_persons && Array.isArray(involved_persons)) {
             for (const person of involved_persons) {
                 if (person.is_guest) {
-                    // Create guest user
-                    const [guestResult] = await db.query(
-                        "INSERT INTO guest_users (first_name, last_name, nickname, email) VALUES (?, ?, ?, ?)",
-                        [person.first_name, person.last_name, person.nickname, person.email]
-                    ) as any[];
-                    const guestId = guestResult.insertId;
+                    let guestId = person.guest_user_id;
+
+                    if (!guestId) {
+                        // Check if guest with this email already exists
+                        const [existingGuests] = await db.query("SELECT id FROM guest_users WHERE email = ?", [person.email]) as any[];
+                        if (existingGuests.length > 0) {
+                            guestId = existingGuests[0].id;
+                        } else {
+                            // Create guest user
+                            const [guestResult] = await db.query(
+                                "INSERT INTO guest_users (first_name, last_name, nickname, email) VALUES (?, ?, ?, ?)",
+                                [person.first_name, person.last_name, person.nickname, person.email]
+                            ) as any[];
+                            guestId = guestResult.insertId;
+                        }
+                    }
 
                     await db.query(
                         "INSERT INTO involved_persons (bill_id, guest_user_id) VALUES (?, ?)",
@@ -403,11 +433,17 @@ app.get("/api/bills/:billId/details", async (req: Request, res: Response) => {
     const { billId } = req.params;
 
     try {
-        const [bills] = await db.query("SELECT * FROM bills WHERE id = ?", [billId]) as any[];
+        const [bills] = await db.query(`
+            SELECT b.*, u.user_type_id as created_by_user_type_id 
+            FROM bills b 
+            JOIN users u ON b.created_by = u.id 
+            WHERE b.id = ?
+        `, [billId]) as any[];
 
         if (!bills.length) {
-            return res.status(404).json({ message: "Bill found" });
+            return res.status(404).json({ message: "Bill not found" });
         }
+
 
         // Get involved persons
         const [ipRaw] = await db.query(`
@@ -716,8 +752,9 @@ app.post("/api/bills/:billId/involved-persons", async (req: Request, res: Respon
             const [users] = await db.query("SELECT user_type_id FROM users WHERE id = ?", [created_by]) as any[];
             if (users.length && users[0].user_type_id === 1) { // Standard User
                 const [members] = await db.query("SELECT COUNT(*) as count FROM involved_persons WHERE bill_id = ?", [billId]) as any[];
+                // 3 because 1 creator + 2 added members maximum = 3 total
                 if (members[0].count >= 3) {
-                    return res.status(403).json({ message: "Standard users can add a maximum of 3 members per bill." });
+                    return res.status(403).json({ message: "Standard users can have a maximum of 3 members total per bill." });
                 }
             }
         }
@@ -1064,22 +1101,21 @@ app.post("/api/users/upgrade-guest", async (req: Request, res: Response) => {
     }
 });
 
-// Search registered and guest users
+// Search registered users only
 app.get("/api/users/search", async (req: Request, res: Response) => {
-    const { q } = req.query;
+    const { q, exclude } = req.query;
 
     try {
         const query = `%${q}%`;
+        const excludeId = parseInt(exclude as string) || 0;
         const [users] = await db.query(`
-            SELECT id, COALESCE(nickname, first_name) as nickname, username, first_name, last_name, email, 0 as is_guest 
+            SELECT id, COALESCE(nickname, first_name) as nickname, username, first_name, last_name, email, 0 as is_guest,
+                   CASE WHEN nickname LIKE ? THEN 1 ELSE 2 END as match_priority
             FROM users 
-            WHERE nickname LIKE ? OR username LIKE ? OR first_name LIKE ? OR last_name LIKE ? OR email LIKE ?
-            UNION ALL
-            SELECT id, COALESCE(nickname, first_name) as nickname, NULL as username, first_name, last_name, email, 1 as is_guest 
-            FROM guest_users 
-            WHERE nickname LIKE ? OR first_name LIKE ? OR last_name LIKE ? OR email LIKE ?
+            WHERE (nickname LIKE ? OR username LIKE ?) AND id != ?
+            ORDER BY match_priority ASC, nickname ASC
             LIMIT 10
-        `, [query, query, query, query, query, query, query, query, query]) as any[];
+        `, [query, query, query, excludeId]) as any[];
 
         res.status(200).json({ users });
     } catch (error: any) {

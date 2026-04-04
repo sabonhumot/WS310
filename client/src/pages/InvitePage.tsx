@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Receipt, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -39,7 +39,7 @@ const InvitePage: React.FC = () => {
         first_name: '',
         last_name: '',
         nickname: '',
-        email: ''
+        email: sessionStorage.getItem('pendingGuestEmail') || ''
     });
 
     const handleInputChange = (field: string, value: string) => {
@@ -54,8 +54,11 @@ const InvitePage: React.FC = () => {
     };
 
     useEffect(() => {
-        if (!inviteCode && !shareToken) {
+        if ((!inviteCode && !shareToken) || !formData.email) {
             setVerifying(false);
+            if (!formData.email) {
+                navigate('/invite-email');
+            }
             return;
         }
 
@@ -67,7 +70,7 @@ const InvitePage: React.FC = () => {
         const verifyCode = async () => {
             try {
                 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-                const endpoint = shareToken ? `${API_URL}/bills/token/${shareToken}` : `${API_URL}/bills/invite/${inviteCode}`;
+                const endpoint = shareToken && shareToken !== 'null' && shareToken !== 'undefined' ? `${API_URL}/bills/token/${shareToken}` : `${API_URL}/bills/invite/${inviteCode}`;
                 const res = await fetch(endpoint);
                 if (res.ok) {
                     setValidCode(true);
@@ -175,8 +178,8 @@ const InvitePage: React.FC = () => {
                     <div className="w-16 h-16 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
                         <X size={32} />
                     </div>
-                    <h2 className="text-2xl font-black text-gray-900 mb-2">Invalid Invite Link</h2>
-                    <p className="text-gray-500 font-bold mb-8">This invitation might have expired or the link is incorrect.</p>
+                    <h2 className="text-2xl font-black text-gray-900 mb-2">Invalid Invite Code</h2>
+                    <p className="text-gray-500 font-bold mb-8">This invitation might be invalid or the code is incorrect.</p>
                     <button
                         onClick={() => navigate('/')}
                         className="w-full py-4 bg-indigo-600 text-white font-black rounded-xl hover:bg-black transition-all uppercase tracking-widest text-xs"
@@ -245,8 +248,8 @@ const InvitePage: React.FC = () => {
                         <input
                             type="email"
                             value={formData.email}
-                            onChange={(e) => handleInputChange('email', e.target.value)}
-                            className={`w-full px-4 py-3 bg-gray-50/50 border rounded-xl focus:outline-none focus:ring-2 transition-all font-bold text-sm ${fieldErrors.email ? 'border-red-500 focus:ring-red-500/20' : 'border-gray-100 focus:ring-indigo-500'}`}
+                            disabled
+                            className="w-full px-4 py-3 bg-gray-100 border border-gray-200 rounded-xl focus:outline-none focus:ring-0 font-bold text-sm text-gray-500 cursor-not-allowed"
                             placeholder="juan@example.com"
                         />
                         {fieldErrors.email && (
