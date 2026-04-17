@@ -114,6 +114,29 @@ const initializeTables = async (connection: any) => {
             )
         `);
 
+        // Expense payers table
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS expense_payers (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                expense_id INT NOT NULL,
+                user_id INT,
+                guest_user_id INT,
+                amount DECIMAL(10, 2) NOT NULL,
+                FOREIGN KEY (expense_id) REFERENCES expenses(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+                FOREIGN KEY (guest_user_id) REFERENCES guest_users(id) ON DELETE SET NULL
+            )
+        `);
+
+        // Migration: Move existing single payers to expense_payers
+        await connection.query(`
+            INSERT INTO expense_payers (expense_id, user_id, guest_user_id, amount)
+            SELECT e.id, e.paid_by_user_id, e.paid_by_guest_id, e.total_amount
+            FROM expenses e
+            WHERE (e.paid_by_user_id IS NOT NULL OR e.paid_by_guest_id IS NOT NULL)
+            AND NOT EXISTS (SELECT 1 FROM expense_payers ep WHERE ep.expense_id = e.id)
+        `);
+
         // Password resets table
         await connection.query(`
             CREATE TABLE IF NOT EXISTS password_resets (
@@ -131,6 +154,7 @@ const initializeTables = async (connection: any) => {
             CREATE TABLE IF NOT EXISTS settlements (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 bill_id INT NOT NULL,
+                expense_id INT,
                 paid_by_user_id INT,
                 paid_by_guest_id INT,
                 paid_to_user_id INT,
@@ -138,12 +162,24 @@ const initializeTables = async (connection: any) => {
                 amount DECIMAL(10, 2) NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (bill_id) REFERENCES bills(id) ON DELETE CASCADE,
+                FOREIGN KEY (expense_id) REFERENCES expenses(id) ON DELETE SET NULL,
                 FOREIGN KEY (paid_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
                 FOREIGN KEY (paid_by_guest_id) REFERENCES guest_users(id) ON DELETE SET NULL,
                 FOREIGN KEY (paid_to_user_id) REFERENCES users(id) ON DELETE SET NULL,
                 FOREIGN KEY (paid_to_guest_id) REFERENCES guest_users(id) ON DELETE SET NULL
             )
         `);
+
+        // Check if expense_id column exists in settlements, if not add it
+        try {
+            const [columns] = await connection.query("SHOW COLUMNS FROM settlements LIKE 'expense_id'");
+            if (columns.length === 0) {
+                await connection.query("ALTER TABLE settlements ADD COLUMN expense_id INT AFTER bill_id, ADD FOREIGN KEY (expense_id) REFERENCES expenses(id) ON DELETE SET NULL");
+                console.log("✓ Added expense_id column to settlements table");
+            }
+        } catch (err) {
+            console.error("Error checking/adding expense_id column to settlements:", err);
+        }
 
         console.log("✅ Database tables initialized");
     } catch (error: any) {

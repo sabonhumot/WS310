@@ -62,7 +62,7 @@ const DashboardPage: React.FC = () => {
                     </div>
                     <p className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Owed to you</p>
                     <p className="text-3xl font-black text-gray-900 leading-none mt-1">
-                        <span className="peso-sign mr-1">₱</span>{stats.owed_to_you.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        <span className="peso-sign mr-1">₱</span>{stats.owed_to_you.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
                 </div>
 
@@ -74,7 +74,7 @@ const DashboardPage: React.FC = () => {
                     </div>
                     <p className="text-sm font-semibold text-gray-400 uppercase tracking-wider">You owe</p>
                     <p className="text-3xl font-black text-gray-900 leading-none mt-1">
-                        <span className="peso-sign mr-1">₱</span>{stats.you_owe.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        <span className="peso-sign mr-1">₱</span>{stats.you_owe.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
                 </div>
 
@@ -102,38 +102,67 @@ const DashboardPage: React.FC = () => {
                         </button>
                     </div>
 
-                    <div className="space-y-3">
-                        {recentActivity.length > 0 ? (
-                            recentActivity.map((item) => (
-                                <div key={item.id} className="glass-card p-4 flex items-center justify-between hover:scale-[1.01] transition-transform cursor-pointer">
-                                    <div className="flex items-center gap-4">
-                                        <div className={`p-3 rounded-full ${item.type === 'owe' ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
-                                            {item.type === 'owe' ? <ArrowDownLeft className="w-5 h-5" /> : <ArrowUpRight className="w-5 h-5" />}
-                                        </div>
-                                        <div>
-                                            <p className="font-bold text-gray-900">{item.title}</p>
-                                            <div className="flex items-center gap-2">
-                                                <p className="text-xs text-indigo-600 font-bold">{item.bill_name}</p>
-                                                <span className="text-gray-300">•</span>
-                                                <p className="text-xs text-gray-400 font-medium">{item.date}</p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className={`font-black ${item.type === 'owe' ? 'text-gray-900' : 'text-green-600'}`}>
-                                            {item.amount}
-                                        </p>
-                                        <span className={`text-[10px] uppercase font-black px-2 py-0.5 rounded ${item.status === 'Completed' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                                            {item.status}
-                                        </span>
-                                    </div>
-                                </div>
-                            ))
-                        ) : (
-                            <div className="glass-card p-12 text-center text-gray-400 font-medium italic">
-                                No activity found.
-                            </div>
-                        )}
+                    <div className="glass-card overflow-hidden">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse">
+                                <thead className="bg-gray-50/50">
+                                    <tr>
+                                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Type</th>
+                                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Activity</th>
+                                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Bill</th>
+                                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100/50 text-right">Date</th>
+                                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 text-right">Amount</th>
+                                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 text-center">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {recentActivity.length > 0 ? (
+                                        recentActivity.map((item) => (
+                                            <tr key={item.id} className="group hover:bg-indigo-50/30 transition-colors cursor-pointer" onClick={() => navigate(item.bill_id ? `/bills/${item.bill_id}` : '/bills')}>
+                                                <td className="px-6 py-4 border-b border-gray-50/50">
+                                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                                                        item.type === 'owe' ? 'bg-red-50 text-red-600' : 
+                                                        item.type === 'lent' ? 'bg-green-50 text-green-600' :
+                                                        'bg-indigo-50 text-indigo-600'
+                                                    }`}>
+                                                        {item.type === 'owe' ? <ArrowDownLeft size={16} /> : 
+                                                         item.type === 'lent' ? <ArrowUpRight size={16} /> : 
+                                                         <Users size={16} />}
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4 border-b border-gray-50/50">
+                                                    <p className="font-bold text-gray-900 text-sm">{item.title}</p>
+                                                </td>
+                                                <td className="px-6 py-4 border-b border-gray-50/50">
+                                                    <span className="text-[10px] font-black text-indigo-600 uppercase tracking-wider">{item.bill_name}</span>
+                                                </td>
+                                                <td className="px-6 py-4 border-b border-gray-50/50 text-right">
+                                                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{item.date}</span>
+                                                </td>
+                                                <td className="px-6 py-4 border-b border-gray-50/50 text-right">
+                                                    <p className={`font-black tabular-nums ${item.type === 'owe' ? 'text-gray-900' : 'text-green-600'}`}>
+                                                        {item.amount}
+                                                    </p>
+                                                </td>
+                                                <td className="px-6 py-4 border-b border-gray-50/50 text-center">
+                                                    <span className={`text-[9px] uppercase font-black px-2 py-0.5 rounded-full ${
+                                                        item.status === 'Completed' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                                                    }`}>
+                                                        {item.status}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    ) : (
+                                        <tr>
+                                            <td colSpan={6} className="px-6 py-12 text-center text-gray-400 font-medium italic">
+                                                No activity found.
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </section>
             </div>

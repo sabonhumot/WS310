@@ -80,6 +80,8 @@ export interface Expense {
     expense_name: string;
     total_amount: number;
     paid_by_id: number | string;
+    paid_by_ids?: (number | string)[];
+    payers?: { user_id?: number; guest_user_id?: number; amount: number }[];
     split_type: 'equally' | 'custom';
     involved_person_ids: (number | string)[]; // who is sharing this expense
     created_at: string;

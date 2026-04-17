@@ -479,12 +479,25 @@ app.get("/api/bills/:billId/details", async (req: Request, res: Response) => {
                 [e.id]
             ) as any[];
 
+            const [payers] = await db.query(
+                "SELECT user_id, guest_user_id, amount FROM expense_payers WHERE expense_id = ?",
+                [e.id]
+            ) as any[];
+
+            const firstPayer = payers[0] ? (payers[0].guest_user_id ? `guest_${payers[0].guest_user_id}` : payers[0].user_id) : (e.paid_by_guest_id ? `guest_${e.paid_by_guest_id}` : e.paid_by_user_id);
+
             return {
                 id: e.id,
                 bill_id: e.bill_id,
                 expense_name: e.expense_name,
                 total_amount: parseFloat(e.total_amount),
-                paid_by_id: e.paid_by_guest_id ? `guest_${e.paid_by_guest_id}` : e.paid_by_user_id,
+                paid_by_id: firstPayer,
+                paid_by_ids: payers.map((p: any) => p.guest_user_id ? `guest_${p.guest_user_id}` : p.user_id),
+                payers: payers.map((p: any) => ({
+                    user_id: p.user_id,
+                    guest_user_id: p.guest_user_id,
+                    amount: parseFloat(p.amount)
+                })),
                 split_type: e.split_type,
                 splits: splits.map((s: any) => ({
                     user_id: s.user_id,
@@ -619,7 +632,7 @@ app.put("/api/bills/:billId", async (req: Request, res: Response) => {
 // Record a settlement (Payment)
 app.post("/api/bills/:billId/settlements", async (req: Request, res: Response) => {
     const { billId } = req.params;
-    const { paid_by_id, paid_to_id, amount } = req.body;
+    const { paid_by_id, paid_to_id, amount, expense_id } = req.body;
 
     try {
         const isPaidByGuest = typeof paid_by_id === 'string' && paid_by_id.startsWith('guest_');
@@ -631,8 +644,8 @@ app.post("/api/bills/:billId/settlements", async (req: Request, res: Response) =
         const paidToGuestId = isPaidToGuest ? parseInt(paid_to_id.replace('guest_', '')) : null;
 
         await db.query(
-            "INSERT INTO settlements (bill_id, paid_by_user_id, paid_by_guest_id, paid_to_user_id, paid_to_guest_id, amount) VALUES (?, ?, ?, ?, ?, ?)",
-            [billId, paidByUserId, paidByGuestId, paidToUserId, paidToGuestId, amount]
+            "INSERT INTO settlements (bill_id, expense_id, paid_by_user_id, paid_by_guest_id, paid_to_user_id, paid_to_guest_id, amount) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [billId, expense_id || null, paidByUserId, paidByGuestId, paidToUserId, paidToGuestId, amount]
         );
 
         res.status(201).json({ message: "Payment recorded successfully" });
@@ -645,17 +658,36 @@ app.post("/api/bills/:billId/settlements", async (req: Request, res: Response) =
 // Edit an expense
 app.put("/api/expenses/:expenseId", async (req: Request, res: Response) => {
     const { expenseId } = req.params;
-    const { expense_name, total_amount, paid_by, split_type, split_with } = req.body;
+    const { expense_name, total_amount, paid_by, paid_by_ids, split_type, split_with } = req.body;
+
+    const payers = paid_by_ids || (paid_by ? [paid_by] : []);
 
     try {
-        const isGuest = typeof paid_by === 'string' && paid_by.startsWith('guest_');
-        const paidByUserId = isGuest ? null : paid_by;
-        const paidByGuestId = isGuest ? parseInt(paid_by.replace('guest_', '')) : null;
-
         await db.query(
-            "UPDATE expenses SET expense_name = ?, total_amount = ?, paid_by_user_id = ?, paid_by_guest_id = ?, split_type = ? WHERE id = ?",
-            [expense_name, total_amount, paidByUserId, paidByGuestId, split_type, expenseId]
+            "UPDATE expenses SET expense_name = ?, total_amount = ?, split_type = ? WHERE id = ?",
+            [expense_name, total_amount, split_type, expenseId]
         );
+
+        // Delete old payers
+        await db.query("DELETE FROM expense_payers WHERE expense_id = ?", [expenseId]);
+
+        // Re-insert new payers
+        if (payers.length > 0) {
+            for (const payer of payers) {
+                const isObject = typeof payer === 'object' && payer !== null && 'id' in payer && 'amount' in payer;
+                const pid = isObject ? payer.id : payer;
+                const payerAmount = isObject ? parseFloat(payer.amount) : (total_amount / payers.length);
+
+                const isGuestPayer = typeof pid === 'string' && pid.startsWith('guest_');
+                const finalUserId = isGuestPayer ? null : pid;
+                const finalGuestId = isGuestPayer ? parseInt((pid as string).replace('guest_', '')) : null;
+
+                await db.query(
+                    "INSERT INTO expense_payers (expense_id, user_id, guest_user_id, amount) VALUES (?, ?, ?, ?)",
+                    [expenseId, finalUserId, finalGuestId, payerAmount]
+                );
+            }
+        }
 
         // Delete old splits
         await db.query("DELETE FROM expense_splits WHERE expense_id = ?", [expenseId]);
@@ -711,6 +743,7 @@ app.delete("/api/bills/:billId", async (req: Request, res: Response) => {
 
     try {
         // Delete related expenses first
+        await db.query("DELETE FROM expense_payers WHERE expense_id IN (SELECT id FROM expenses WHERE bill_id = ?)", [billId]);
         await db.query("DELETE FROM expense_splits WHERE expense_id IN (SELECT id FROM expenses WHERE bill_id = ?)", [billId]);
         await db.query("DELETE FROM expenses WHERE bill_id = ?", [billId]);
         // Delete involved persons
@@ -1223,23 +1256,38 @@ app.put("/api/users/:userId/password", async (req: Request, res: Response) => {
 // Add expense to a bill
 app.post("/api/bills/:billId/expenses", async (req: Request, res: Response) => {
     const { billId } = req.params;
-    const { expense_name, total_amount, paid_by_id, split_type, involved_person_ids } = req.body;
+    const { expense_name, total_amount, paid_by_ids, split_type, involved_person_ids } = req.body;
 
-    if (!expense_name || !total_amount || !paid_by_id) {
-        return res.status(400).json({ message: "Expense name, amount, and payer are required" });
+    // We accept paid_by_id for backward compatibility, but prefer paid_by_ids
+    const payers = paid_by_ids || (req.body.paid_by_id ? [req.body.paid_by_id] : []);
+
+    if (!expense_name || !total_amount || payers.length === 0) {
+        return res.status(400).json({ message: "Expense name, amount, and at least one payer are required" });
     }
 
     try {
-        const isGuestPayer = typeof paid_by_id === 'string' && paid_by_id.startsWith('guest_');
-        const finalUserId = isGuestPayer ? null : paid_by_id;
-        const finalGuestId = isGuestPayer ? parseInt(paid_by_id.replace('guest_', '')) : null;
-
         const [expenseResult] = await db.query(
-            "INSERT INTO expenses (bill_id, expense_name, total_amount, paid_by_user_id, paid_by_guest_id, split_type) VALUES (?, ?, ?, ?, ?, ?)",
-            [billId, expense_name, total_amount, finalUserId, finalGuestId, split_type]
+            "INSERT INTO expenses (bill_id, expense_name, total_amount, split_type) VALUES (?, ?, ?, ?)",
+            [billId, expense_name, total_amount, split_type]
         ) as any[];
 
         const expenseId = expenseResult.insertId;
+
+        // Add Payers
+        for (const payer of payers) {
+            const isObject = typeof payer === 'object' && payer !== null && 'id' in payer && 'amount' in payer;
+            const pid = isObject ? payer.id : payer;
+            const payerAmount = isObject ? parseFloat(payer.amount) : (total_amount / payers.length);
+
+            const isGuestPayer = typeof pid === 'string' && pid.startsWith('guest_');
+            const finalUserId = isGuestPayer ? null : pid;
+            const finalGuestId = isGuestPayer ? parseInt((pid as string).replace('guest_', '')) : null;
+
+            await db.query(
+                "INSERT INTO expense_payers (expense_id, user_id, guest_user_id, amount) VALUES (?, ?, ?, ?)",
+                [expenseId, finalUserId, finalGuestId, payerAmount]
+            );
+        }
 
         // Add splits
         if (involved_person_ids && involved_person_ids.length > 0) {
@@ -1305,6 +1353,8 @@ app.delete("/api/expenses/:expenseId", async (req: Request, res: Response) => {
 
     try {
         await db.query("DELETE FROM expense_splits WHERE expense_id = ?", [expenseId]);
+        await db.query("DELETE FROM expense_payers WHERE expense_id = ?", [expenseId]);
+        await db.query("DELETE FROM settlements WHERE expense_id = ?", [expenseId]);
         await db.query("DELETE FROM expenses WHERE id = ?", [expenseId]);
         res.status(200).json({ message: "Expense deleted successfully" });
     } catch (error: any) {
@@ -1350,6 +1400,12 @@ async function getDebtActivity(userId: string) {
             WHERE e.bill_id = ?
         `, [bill.id]) as any[];
 
+        const [payersRaw] = await db.query(`
+            SELECT ep.* FROM expense_payers ep 
+            JOIN expenses e ON ep.expense_id = e.id 
+            WHERE e.bill_id = ?
+        `, [bill.id]) as any[];
+
         // Fetch all settlements for this bill
         const [settlements] = await db.query("SELECT * FROM settlements WHERE bill_id = ?", [bill.id]) as any[];
 
@@ -1363,14 +1419,24 @@ async function getDebtActivity(userId: string) {
 
         // a. Process expenses: payer is owed by splits
         expenses.forEach((exp: any) => {
-            const payerId = String(exp.paid_by_guest_id ? `guest_${exp.paid_by_guest_id}` : exp.paid_by_user_id);
+            const expPayers = payersRaw.filter((p: any) => p.expense_id === exp.id);
             const expSplits = splits.filter((s: any) => s.expense_id === exp.id);
+
             expSplits.forEach((split: any) => {
                 const splitUserId = String(split.guest_user_id ? `guest_${split.guest_user_id}` : split.user_id);
-                if (splitUserId === payerId) return;
-                if (pairwiseBalances[splitUserId] && pairwiseBalances[splitUserId][payerId] !== undefined) {
-                    pairwiseBalances[splitUserId][payerId] += Number(split.amount);
-                }
+                
+                expPayers.forEach((payer: any) => {
+                    const payerId = String(payer.guest_user_id ? `guest_${payer.guest_user_id}` : payer.user_id);
+                    if (splitUserId === payerId) return;
+                    
+                    // Distribute split proportionally to whoever paid
+                    const proportion = Number(exp.total_amount) > 0 ? (Number(payer.amount) / Number(exp.total_amount)) : 0;
+                    const amountOwedToThisPayer = Number(split.amount) * proportion;
+
+                    if (pairwiseBalances[splitUserId] && pairwiseBalances[splitUserId][payerId] !== undefined) {
+                        pairwiseBalances[splitUserId][payerId] += amountOwedToThisPayer;
+                    }
+                });
             });
         });
 
@@ -1397,7 +1463,7 @@ async function getDebtActivity(userId: string) {
                     type: netAmount > 0 ? 'owe' : 'lent',
                     title: netAmount > 0 ? `You owe ${personsMap[otherId]}` : `${personsMap[otherId]} owes you`,
                     bill_name: bill.bill_name,
-                    amount: `₱${Math.abs(netAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+                    amount: `₱${Math.abs(netAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
                     rawAmount: Math.abs(netAmount),
                     status: 'Pending',
                     date: new Date(bill.created_at).toLocaleDateString(),
@@ -1420,13 +1486,33 @@ async function getDebtActivity(userId: string) {
                     type: isPayer ? 'owe' : 'lent', // Using same type for consistent coloring
                     title: isPayer ? `You paid ${otherParty}` : `${otherParty} paid you`,
                     bill_name: bill.bill_name,
-                    amount: `₱${parseFloat(s.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+                    amount: `₱${parseFloat(s.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
                     rawAmount: parseFloat(s.amount),
                     status: 'Completed',
                     date: new Date(s.created_at).toLocaleDateString(),
                     rawDate: s.created_at
                 });
             }
+        });
+        // e. Include individual expense records for the "Expenses" tab
+        expenses.forEach((e: any) => {
+            const payerId = String(e.paid_by_guest_id ? `guest_${e.paid_by_guest_id}` : e.paid_by_user_id);
+            const payerName = personsMap[payerId] || "Someone";
+            
+            activity.push({
+                id: `expense_${e.id}`,
+                type: 'expense',
+                title: e.expense_name,
+                subtitle: `Paid by ${payerName}`,
+                bill_id: bill.id,
+                bill_name: bill.bill_name,
+                amount: `₱${parseFloat(e.total_amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                rawAmount: parseFloat(e.total_amount),
+                status: 'Completed',
+                paid_by: payerName,
+                date: new Date(e.created_at).toLocaleDateString(),
+                rawDate: e.created_at
+            });
         });
     }
 

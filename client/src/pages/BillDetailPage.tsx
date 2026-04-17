@@ -15,7 +15,9 @@ import {
     MoreVertical,
     Receipt,
     ChevronLeft,
-    Check
+    Check,
+    Eye,
+    Users
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Bill, InvolvedPerson, Expense, GuestData } from '../types';
@@ -30,6 +32,7 @@ const BillDetailPage: React.FC = () => {
     const [bill, setBill] = useState<Bill | null>(null);
     const [billDetails, setBillDetails] = useState<{ involvedPersons: InvolvedPerson[], expenses: Expense[], settlements: any[] } | null>(null);
     const [loading, setLoading] = useState(true);
+    const isStandard = bill?.created_by_user_type_id === 1;
     const [activeTab, setActiveTab] = useState<'Persons' | 'Overview' | 'Payment'>('Overview');
 
 
@@ -39,16 +42,21 @@ const BillDetailPage: React.FC = () => {
     const [showAddPersonToExpenseModal, setShowAddPersonToExpenseModal] = useState(false);
     const [showPayModal, setShowPayModal] = useState(false);
     const [showEditBillModal, setShowEditBillModal] = useState(false);
+    const [showViewExpenseModal, setShowViewExpenseModal] = useState(false);
+    const [showViewExpenseMenu, setShowViewExpenseMenu] = useState(false);
+    const [showSummaryModal, setShowSummaryModal] = useState(false);
+    const [selectedExpenseForPay, setSelectedExpenseForPay] = useState<number | null>(null);
 
     // Form States
     const [newExpense, setNewExpense] = useState({
         name: '',
         amount: '',
-        paidBy: '' as string | number,
+        paidBy: [{ id: '' as string | number, amount: '' }],
         splitType: 'equally' as 'equally' | 'custom',
         splitWith: [] as (string | number)[]
     });
     const [editingExpenseId, setEditingExpenseId] = useState<number | null>(null);
+    const [viewingExpense, setViewingExpense] = useState<Expense | null>(null);
     const [paymentAmount, setPaymentAmount] = useState('');
     const [paymentTarget, setPaymentTarget] = useState<{ fromId: string | number, toId: string | number, fromName: string, toName: string, amount: number } | null>(null);
     const [newBillName, setNewBillName] = useState('');
@@ -65,6 +73,8 @@ const BillDetailPage: React.FC = () => {
         nickname: '',
         email: ''
     });
+
+    const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
     const [confirmModal, setConfirmModal] = useState<{
         isOpen: boolean;
@@ -184,20 +194,29 @@ const BillDetailPage: React.FC = () => {
     };
 
     const addGuestToBill = async () => {
-        if (!guestData.firstName || !guestData.lastName || !guestData.nickname || !guestData.email || !bill) {
-            toast.error('Please fill in all guest fields');
+        setFieldErrors({});
+        const errors: Record<string, string> = {};
+
+        if (!guestData.firstName.trim()) errors.firstName = 'First name is required';
+        if (!guestData.lastName.trim()) errors.lastName = 'Last name is required';
+        if (!guestData.nickname.trim()) errors.nickname = 'Nickname is required';
+        if (!guestData.email.trim()) errors.email = 'Email is required';
+        else if (!/\S+@\S+\.\S+/.test(guestData.email)) errors.email = 'Invalid email format';
+
+        if (Object.keys(errors).length > 0) {
+            setFieldErrors(errors);
             return;
         }
 
         // Standard user limit check: Max 3 members total
-        if (bill.created_by_user_type_id === 1 && (billDetails?.involvedPersons.length || 0) >= 3) {
+        if (bill?.created_by_user_type_id === 1 && (billDetails?.involvedPersons.length || 0) >= 3) {
             toast.error('Standard accounts can have a maximum of 3 members total per bill.');
             return;
         }
 
 
         try {
-            const response = await fetch(`http://localhost:5001/api/bills/${bill.id}/involved-persons/guest`, {
+            const response = await fetch(`http://localhost:5001/api/bills/${bill?.id}/involved-persons/guest`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ ...guestData, created_by: user?.id })
@@ -218,6 +237,16 @@ const BillDetailPage: React.FC = () => {
     };
 
     const handleDeletePerson = (personId: number | string) => {
+        // Check if person has unsettled debts
+        const hasUnsettledDebts = computedDebts.some(debt => debt.fromId === personId || debt.toId === personId);
+        
+        if (hasUnsettledDebts) {
+            toast.error('Cannot remove member. This person has unsettled debts or is owed money.', {
+                duration: 4000,
+                icon: '⚠️'
+            });
+            return;
+        }
 
         setConfirmModal({
             isOpen: true,
@@ -232,6 +261,9 @@ const BillDetailPage: React.FC = () => {
                     if (response.ok) {
                         toast.success('Member removed');
                         fetchBillDetails();
+                    } else {
+                        const errorData = await response.json();
+                        toast.error(errorData.message || 'Failed to remove member');
                     }
                 } catch (error) {
                     toast.error('Failed to remove member');
@@ -243,20 +275,44 @@ const BillDetailPage: React.FC = () => {
 
     const handleAddExpense = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!newExpense.name || !newExpense.amount || !newExpense.paidBy || !bill) {
-            toast.error('Please fill in all required fields');
+        setFieldErrors({});
+        const errors: Record<string, string> = {};
+
+        if (!newExpense.name.trim()) errors.name = 'Expense name is required';
+        
+        let hasPayerError = false;
+        newExpense.paidBy.forEach((p, idx) => {
+            if (!p.id) {
+                errors[`paidBy_${idx}_id`] = 'Please select a person';
+                hasPayerError = true;
+            }
+            if (!p.amount || parseFloat(p.amount) <= 0) {
+                errors[`paidBy_${idx}_amount`] = 'Amount must be greater than 0';
+                hasPayerError = true;
+            }
+        });
+
+        if (newExpense.splitType === 'custom' && newExpense.splitWith.length === 0) {
+            errors.splitWith = 'Please select at least one person to split with';
+        }
+
+        if (Object.keys(errors).length > 0) {
+            setFieldErrors(errors);
             return;
         }
 
         try {
+            const formattedPaidBy = newExpense.paidBy.map(p => ({ id: p.id, amount: parseFloat(p.amount) || 0 }));
+
             const response = await fetch(`http://localhost:5001/api/bills/${bill.id}/expenses`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    ...newExpense,
-                    amount: parseFloat(newExpense.amount),
-                    bill_id: bill.id,
-                    created_by: user?.id
+                    expense_name: newExpense.name,
+                    total_amount: parseFloat(newExpense.amount),
+                    paid_by_ids: formattedPaidBy,
+                    split_type: newExpense.splitType,
+                    involved_person_ids: newExpense.splitType === 'equally' ? billDetails?.involvedPersons.map(p => p.id) : newExpense.splitWith
                 })
             });
 
@@ -275,21 +331,37 @@ const BillDetailPage: React.FC = () => {
 
     const handleEditExpenseSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!newExpense.name || !newExpense.amount || !newExpense.paidBy || !editingExpenseId || !bill) {
-            toast.error('Please fill in all required fields');
+        setFieldErrors({});
+        const errors: Record<string, string> = {};
+
+        if (!newExpense.name.trim()) errors.name = 'Expense name is required';
+        
+        newExpense.paidBy.forEach((p, idx) => {
+            if (!p.id) errors[`paidBy_${idx}_id`] = 'Please select a person';
+            if (!p.amount || parseFloat(p.amount) <= 0) errors[`paidBy_${idx}_amount`] = 'Amount must be greater than 0';
+        });
+
+        if (newExpense.splitType === 'custom' && newExpense.splitWith.length === 0) {
+            errors.splitWith = 'Please select at least one person to split with';
+        }
+
+        if (Object.keys(errors).length > 0) {
+            setFieldErrors(errors);
             return;
         }
 
         try {
-            const response = await fetch(`http://localhost:5001/api/bills/${bill.id}/expenses/${editingExpenseId}`, {
+            const formattedPaidBy = newExpense.paidBy.map(p => ({ id: p.id, amount: parseFloat(p.amount) || 0 }));
+
+            const response = await fetch(`http://localhost:5001/api/expenses/${editingExpenseId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    name: newExpense.name,
-                    amount: parseFloat(newExpense.amount),
-                    paidBy: newExpense.paidBy,
-                    splitType: newExpense.splitType,
-                    splitWith: newExpense.splitWith
+                    expense_name: newExpense.name,
+                    total_amount: parseFloat(newExpense.amount),
+                    paid_by_ids: formattedPaidBy,
+                    split_type: newExpense.splitType,
+                    involved_person_ids: newExpense.splitType === 'equally' ? billDetails?.involvedPersons.map(p => p.id) : newExpense.splitWith
                 })
             });
 
@@ -314,12 +386,15 @@ const BillDetailPage: React.FC = () => {
             confirmVariant: 'danger',
             onConfirm: async () => {
                 try {
-                    const response = await fetch(`http://localhost:5001/api/bills/${billId}/expenses/${expenseId}`, {
+                    const response = await fetch(`http://localhost:5001/api/expenses/${expenseId}`, {
                         method: 'DELETE'
                     });
                     if (response.ok) {
                         toast.success('Expense deleted');
                         fetchBillDetails();
+                    } else {
+                        const errorData = await response.json();
+                        toast.error(errorData.message || 'Failed to delete expense');
                     }
                 } catch (error) {
                     toast.error('Failed to delete expense');
@@ -365,16 +440,19 @@ const BillDetailPage: React.FC = () => {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    fromId: paymentTarget.fromId,
-                    toId: paymentTarget.toId,
+                    paid_by_id: paymentTarget.fromId,
+                    paid_to_id: paymentTarget.toId,
                     amount: parseFloat(paymentAmount),
-                    settled_by: user?.id || guestUser?.id
+                    expense_id: selectedExpenseForPay
                 })
             });
 
             if (response.ok) {
                 toast.success('Payment settled successfully');
                 setShowPayModal(false);
+                setPaymentAmount('');
+                setPaymentTarget(null);
+                setSelectedExpenseForPay(null);
                 fetchBillDetails();
             } else {
                 toast.error('Failed to settle payment');
@@ -386,7 +464,12 @@ const BillDetailPage: React.FC = () => {
 
     const handleEditBill = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!newBillName || !bill) return;
+        setFieldErrors({});
+        if (!newBillName.trim()) {
+            setFieldErrors({ billName: 'Bill name is required' });
+            return;
+        }
+        if (!bill) return;
 
         try {
             const response = await fetch(`http://localhost:5001/api/bills/${bill.id}`, {
@@ -407,71 +490,181 @@ const BillDetailPage: React.FC = () => {
         }
     };
 
-    const activityHistory = useMemo(() => {
+    const myDebtId = useMemo(() => {
+        if (!user && !guestUser) return null;
+        return guestUser ? `guest_${guestUser.id}` : String(user?.id);
+    }, [user, guestUser]);
+
+    const perExpenseDebts = useMemo(() => {
         if (!billDetails) return [];
-        const items: any[] = [];
+        
+        const results: any[] = [];
+        const pools: Record<string, number> = {};
 
-        billDetails.expenses.forEach(exp => {
-            const payer = billDetails.involvedPersons.find(p => p.id === exp.paid_by_id);
-            items.push({
-                id: `exp-${exp.id}`,
-                type: 'expense',
-                title: exp.expense_name,
-                subtitle: `Paid by ${payer?.nickname || 'Unknown'}`,
-                amount: exp.total_amount,
-                status: 'Completed',
-                fromName: payer?.nickname || 'Unknown',
-                date: new Date(exp.created_at)
-            });
+        // 1. Build Settlement Pools (Total paid between pairs)
+        billDetails.settlements.forEach(s => {
+            const key = `${s.paid_by_id}_${s.paid_to_id}`;
+            pools[key] = (pools[key] || 0) + Number(s.amount);
         });
 
-        billDetails.settlements.forEach(set => {
-            const from = billDetails.involvedPersons.find(p => p.id === set.from_person_id);
-            const to = billDetails.involvedPersons.find(p => p.id === set.to_person_id);
-            items.push({
-                id: `set-${set.id}`,
-                type: 'settlement',
-                title: `${from?.nickname} paid ${to?.nickname}`,
-                subtitle: 'Debt Settlement',
-                amount: set.amount,
-                status: 'Settled',
-                fromName: from?.nickname || 'Unknown',
-                date: new Date(set.created_at)
-            });
+        // 2. Sort expenses by date (oldest first) so settlements apply chronologically
+        const sortedExpenses = [...billDetails.expenses].sort((a, b) => 
+            new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        );
+
+        sortedExpenses.forEach(exp => {
+            const expBalances: Record<string, number> = {};
+            
+            // Initialization, Payment addition, and Split subtraction logic (Same as before)
+            exp.involved_person_ids.forEach(id => expBalances[String(id)] = 0);
+            exp.paid_by_ids?.forEach(id => expBalances[String(id)] = 0);
+            if (exp.paid_by_id) expBalances[String(exp.paid_by_id)] = 0;
+
+            if (exp.payers && exp.payers.length > 0) {
+                exp.payers.forEach(p => {
+                    const pid = p.guest_user_id ? `guest_${p.guest_user_id}` : p.user_id;
+                    if (expBalances[String(pid)] !== undefined) expBalances[String(pid)] += p.amount;
+                });
+            } else if (exp.paid_by_id) {
+                expBalances[String(exp.paid_by_id)] += exp.total_amount;
+            }
+
+            if (exp.splits && exp.splits.length > 0 && exp.split_type === 'custom') {
+                exp.splits.forEach(s => {
+                    const sid = s.guest_user_id ? `guest_${s.guest_user_id}` : s.user_id;
+                    if (expBalances[String(sid)] !== undefined) expBalances[String(sid)] -= s.amount;
+                });
+            } else {
+                const splitCount = exp.involved_person_ids.length;
+                if (splitCount > 0) {
+                    const share = exp.total_amount / splitCount;
+                    exp.involved_person_ids.forEach(id => expBalances[String(id)] -= share);
+                }
+            }
+
+            // 4. Calculate minimal transfers for this receipt
+            const debtors = Object.keys(expBalances)
+                .map(id => ({ id, balance: expBalances[id] }))
+                .filter(p => p.balance < -0.01)
+                .sort((a, b) => a.balance - b.balance);
+
+            const creditors = Object.keys(expBalances)
+                .map(id => ({ id, balance: expBalances[id] }))
+                .filter(p => p.balance > 0.01)
+                .sort((a, b) => b.balance - a.balance);
+
+            let dIdx = 0, cIdx = 0;
+            const dCopy = debtors.map(d => ({ ...d, balance: Math.abs(d.balance) }));
+            const cCopy = creditors.map(c => ({ ...c, balance: c.balance }));
+
+            while (dIdx < dCopy.length && cIdx < cCopy.length) {
+                const amount = Math.min(dCopy[dIdx].balance, cCopy[cIdx].balance);
+                const debtorId = dCopy[dIdx].id;
+                const creditorId = cCopy[cIdx].id;
+                const amountOwed = Math.round(amount * 100) / 100;
+                
+                if (amountOwed > 0.01) {
+                    // Check against the settlement pool instead of specific ID
+                    const poolKey = `${debtorId}_${creditorId}`;
+                    const availableInPool = pools[poolKey] || 0;
+                    const settledForThis = Math.min(availableInPool, amountOwed);
+                    
+                    // Consume from pool
+                    pools[poolKey] -= settledForThis;
+
+                    const debtor = billDetails.involvedPersons.find(p => String(p.id) === String(debtorId));
+                    const creditor = billDetails.involvedPersons.find(p => String(p.id) === String(creditorId));
+
+                    results.push({
+                        expenseId: exp.id,
+                        expenseName: exp.expense_name,
+                        fromId: debtorId,
+                        toId: creditorId,
+                        fromName: debtor?.nickname || debtor?.first_name || 'Someone',
+                        toName: creditor?.nickname || creditor?.first_name || 'Someone',
+                        amount: amountOwed,
+                        settledAmount: Math.round(settledForThis * 100) / 100,
+                        remainingAmount: Math.max(0, Math.round((amountOwed - settledForThis) * 100) / 100),
+                        isSettled: (settledForThis + 0.01) >= amountOwed,
+                        date: exp.created_at
+                    });
+                }
+
+                dCopy[dIdx].balance -= amount;
+                cCopy[cIdx].balance -= amount;
+                if (dCopy[dIdx].balance <= 0.01) dIdx++;
+                if (cCopy[cIdx].balance <= 0.01) cIdx++;
+            }
         });
 
-        return items.sort((a, b) => b.date.getTime() - a.date.getTime());
+        // Finally, sort results back for display (usually by date)
+        return results.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [billDetails]);
 
     const computedDebts = useMemo(() => {
         if (!billDetails) return [];
-        const balances: { [key: string]: number } = {};
+        const balances: Record<string, number> = {};
         
-        billDetails.involvedPersons.forEach(p => balances[p.id] = 0);
-        
+        // Initialize
+        billDetails.involvedPersons.forEach(p => balances[String(p.id)] = 0);
+
+        // Process Expenses
         billDetails.expenses.forEach(exp => {
-            const splitCount = exp.involved_person_ids.length;
-            if (splitCount === 0) return;
-            const amountPerPerson = exp.total_amount / splitCount;
-            
-            balances[exp.paid_by_id] += exp.total_amount;
-            exp.involved_person_ids.forEach(pid => {
-                balances[pid] -= amountPerPerson;
-            });
+            // Payer part
+            if (exp.payers && exp.payers.length > 0) {
+                exp.payers.forEach(p => {
+                    const pid = p.guest_user_id ? `guest_${p.guest_user_id}` : p.user_id;
+                    if (balances[String(pid)] !== undefined) {
+                        balances[String(pid)] += Number(p.amount);
+                    }
+                });
+            } else if (exp.paid_by_id) {
+                if (balances[String(exp.paid_by_id)] !== undefined) {
+                    balances[String(exp.paid_by_id)] += exp.total_amount;
+                }
+            }
+
+            // Split part
+            if (exp.splits && exp.splits.length > 0 && exp.split_type === 'custom') {
+                exp.splits.forEach(s => {
+                    const sid = s.guest_user_id ? `guest_${s.guest_user_id}` : s.user_id;
+                    if (balances[String(sid)] !== undefined) {
+                        balances[String(sid)] -= Number(s.amount);
+                    }
+                });
+            } else {
+                const splitCount = exp.involved_person_ids.length;
+                if (splitCount > 0) {
+                    const share = exp.total_amount / splitCount;
+                    exp.involved_person_ids.forEach(pid => {
+                        if (balances[String(pid)] !== undefined) {
+                            balances[String(pid)] -= share;
+                        }
+                    });
+                }
+            }
         });
         
+        // Process Settlements (Only if valid/not orphaned)
         billDetails.settlements.forEach(set => {
-            balances[set.from_person_id] += set.amount;
-            balances[set.to_person_id] -= set.amount;
+            // If settlement is tied to an expense, it must exist in our current expenses list
+            if (set.expense_id && !billDetails.expenses.some(e => e.id === set.expense_id)) {
+                return; // Ignore orphaned settlement
+            }
+
+            const fromId = String(set.paid_by_id);
+            const toId = String(set.paid_to_id);
+            if (balances[fromId] !== undefined) balances[fromId] += Number(set.amount);
+            if (balances[toId] !== undefined) balances[toId] -= Number(set.amount);
         });
 
         const debtors = billDetails.involvedPersons
-            .map(p => ({ id: p.id, name: p.nickname || p.first_name, balance: balances[p.id] }))
+            .map(p => ({ id: p.id, name: p.nickname || p.first_name, balance: balances[String(p.id)] }))
             .filter(p => p.balance < -0.01)
             .sort((a, b) => a.balance - b.balance);
 
         const creditors = billDetails.involvedPersons
-            .map(p => ({ id: p.id, name: p.nickname || p.first_name, balance: balances[p.id] }))
+            .map(p => ({ id: p.id, name: p.nickname || p.first_name, balance: balances[String(p.id)] }))
             .filter(p => p.balance > 0.01)
             .sort((a, b) => b.balance - a.balance);
 
@@ -489,14 +682,14 @@ const BillDetailPage: React.FC = () => {
                 fromName: dCopy[debtorIdx].name,
                 toId: cCopy[creditorIdx].id,
                 toName: cCopy[creditorIdx].name,
-                amount: amount
+                amount: Math.round(amount * 100) / 100
             });
 
             dCopy[debtorIdx].balance -= amount;
             cCopy[creditorIdx].balance -= amount;
 
-            if (dCopy[debtorIdx].balance < 0.01) debtorIdx++;
-            if (cCopy[creditorIdx].balance < 0.01) creditorIdx++;
+            if (dCopy[debtorIdx].balance <= 0.01) debtorIdx++;
+            if (cCopy[creditorIdx].balance <= 0.01) creditorIdx++;
         }
 
         return result;
@@ -567,7 +760,7 @@ const BillDetailPage: React.FC = () => {
                     )}
                     <button 
                         onClick={() => {
-                            setNewExpense({ name: '', amount: '', paidBy: user?.id || '', splitType: 'equally', splitWith: billDetails.involvedPersons.map(p => p.id) });
+                            setNewExpense({ name: '', amount: '', paidBy: [{ id: user?.id || '', amount: '' }], splitType: 'equally', splitWith: billDetails.involvedPersons.map(p => p.id) });
                             setShowExpenseModal(true);
                         }}
                         className="flex-1 md:flex-none px-8 py-3 bg-indigo-600 text-white font-black text-xs uppercase tracking-widest rounded-xl hover:bg-indigo-700 shadow-xl shadow-indigo-100 transition-all flex items-center justify-center gap-2"
@@ -600,89 +793,128 @@ const BillDetailPage: React.FC = () => {
                         <div className="animate-in slide-in-from-bottom-4 duration-500 space-y-6">
                             {billDetails.expenses.length > 0 ? (
                                 <div className="grid grid-cols-1 gap-4">
-                                    {billDetails.expenses.map((expense: Expense) => (
-                                        <div key={expense.id} className="glass-card p-6 group transition-all duration-300 relative overflow-visible">
-                                            <div className="flex justify-between items-start mb-4">
-                                                <div>
-                                                    <h3 className="font-black text-gray-900 text-xl flex items-center gap-3">
-                                                        <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
-                                                            <Receipt size={20} />
-                                                        </div>
-                                                        {expense.expense_name}
-                                                    </h3>
-                                                    <p className="text-xs font-bold text-gray-400 mt-2 ml-13 flex items-center gap-2">
-                                                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-400"></span>
-                                                        Paid by {billDetails.involvedPersons.find(p => p.id === expense.paid_by_id)?.nickname || 'Unknown'}
-                                                    </p>
-                                                </div>
-                                                <div className="text-right">
-                                                    <p className="font-black text-gray-900 text-3xl tabular-nums tracking-tighter">₱{expense.total_amount.toLocaleString()}</p>
-                                                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">{new Date(expense.created_at).toLocaleDateString()}</p>
-                                                </div>
-                                            </div>
+                                    {billDetails.expenses.map((expense: Expense) => {
+                                        const openViewModal = () => {
+                                            setViewingExpense(expense);
+                                            setShowViewExpenseModal(true);
+                                        };
 
-                                            <div className="flex items-center gap-3 mt-6 pt-4 border-t border-gray-50">
-                                                <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Shared With</span>
-                                                <div className="flex -space-x-2">
-                                                    {expense.involved_person_ids.map(pid => {
-                                                        const p = billDetails.involvedPersons.find(ip => ip.id === pid);
-                                                        return (
-                                                            <div 
-                                                                key={pid} 
-                                                                className="w-8 h-8 rounded-full bg-white border-2 border-white shadow-sm flex items-center justify-center font-black text-[10px] text-indigo-600 uppercase"
-                                                                title={p?.nickname || 'Unknown'}
-                                                            >
-                                                                {p?.nickname?.[0] || '?'}
+                                        const openEditModal = () => {
+                                            // Convert legacy single ID or new array of payers to proper format
+                                            let initialPaidBy = [];
+                                            if (expense.payers && expense.payers.length > 0) {
+                                                initialPaidBy = expense.payers.map((p: any) => ({
+                                                    id: p.guest_user_id ? `guest_${p.guest_user_id}` : p.user_id,
+                                                    amount: p.amount ? p.amount.toString() : ''
+                                                }));
+                                            } else {
+                                                initialPaidBy = [{ id: expense.paid_by_id, amount: expense.total_amount.toString() }];
+                                            }
+
+                                            setNewExpense({
+                                                name: expense.expense_name,
+                                                amount: expense.total_amount.toString(),
+                                                paidBy: initialPaidBy,
+                                                splitType: expense.split_type,
+                                                splitWith: expense.involved_person_ids
+                                            });
+                                            setEditingExpenseId(expense.id);
+                                            setShowEditExpenseModal(true);
+                                        };
+
+                                        return (
+                                            <div 
+                                                key={expense.id} 
+                                                onClick={openViewModal}
+                                                className="glass-card p-6 group transition-all duration-300 relative overflow-visible cursor-pointer hover:border-indigo-100 hover:shadow-xl hover:shadow-indigo-50/50"
+                                            >
+                                                <div className="flex justify-between items-start mb-4 gap-4">
+                                                    <div className="flex-1">
+                                                        <h3 className="font-black text-gray-900 text-xl flex items-center gap-3">
+                                                            <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center shrink-0">
+                                                                <Receipt size={20} />
                                                             </div>
-                                                        );
-                                                    })}
+                                                            <span className="truncate">{expense.expense_name}</span>
+                                                        </h3>
+                                                        <p className="text-xs font-bold text-gray-400 mt-2 ml-13 flex items-center gap-2">
+                                                            <span className="w-1.5 h-1.5 rounded-full bg-indigo-400"></span>
+                                                            Paid by {billDetails.involvedPersons.find(p => p.id === expense.paid_by_id)?.nickname || 'Unknown'}
+                                                        </p>
+                                                    </div>
+                                                    <div className="flex items-start gap-3">
+                                                        <div className="text-right">
+                                                            <p className="font-black text-gray-900 text-3xl tabular-nums tracking-tighter">₱{expense.total_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                                                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">{new Date(expense.created_at).toLocaleDateString()}</p>
+                                                        </div>
+                                                        <div className="relative">
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setOpenExpenseDropdown(openExpenseDropdown === expense.id ? null : expense.id);
+                                                                }}
+                                                                className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-400 hover:text-gray-900 bg-white shadow-sm border border-gray-100"
+                                                            >
+                                                                <MoreVertical size={18} />
+                                                            </button>
+
+                                                            {openExpenseDropdown === expense.id && (
+                                                                <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-100 rounded-2xl shadow-xl z-30 py-2 animate-in fade-in zoom-in-95 duration-200">
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setOpenExpenseDropdown(null);
+                                                                            openViewModal();
+                                                                        }}
+                                                                        className="w-full text-left px-4 py-3 text-xs font-black text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 flex items-center gap-3 transition-colors uppercase tracking-widest"
+                                                                    >
+                                                                        <Eye size={14} /> View
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setOpenExpenseDropdown(null);
+                                                                            openEditModal();
+                                                                        }}
+                                                                        className="w-full text-left px-4 py-3 text-xs font-black text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 flex items-center gap-3 transition-colors uppercase tracking-widest"
+                                                                    >
+                                                                        <Edit2 size={14} /> Edit
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setOpenExpenseDropdown(null);
+                                                                            handleDeleteExpense(expense.id);
+                                                                        }}
+                                                                        className="w-full text-left px-4 py-3 text-xs font-black text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors uppercase tracking-widest"
+                                                                    >
+                                                                        <Trash2 size={14} /> Delete
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center gap-3 mt-6 pt-4 border-t border-gray-50">
+                                                    <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Shared With</span>
+                                                    <div className="flex -space-x-2">
+                                                        {expense.involved_person_ids.map(pid => {
+                                                            const p = billDetails.involvedPersons.find(ip => ip.id === pid);
+                                                            return (
+                                                                <div 
+                                                                    key={pid} 
+                                                                    className="w-8 h-8 rounded-full bg-white border-2 border-white shadow-sm flex items-center justify-center font-black text-[10px] text-indigo-600 uppercase"
+                                                                    title={p?.nickname || 'Unknown'}
+                                                                >
+                                                                    {p?.nickname?.[0] || '?'}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
                                                 </div>
                                             </div>
-
-                                            <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setOpenExpenseDropdown(openExpenseDropdown === expense.id ? null : expense.id);
-                                                    }}
-                                                    className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-400 hover:text-gray-900 bg-white shadow-sm border border-gray-100"
-                                                >
-                                                    <MoreVertical size={18} />
-                                                </button>
-
-                                                {openExpenseDropdown === expense.id && (
-                                                    <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-100 rounded-2xl shadow-xl z-30 py-2 animate-in fade-in zoom-in-95 duration-200">
-                                                        <button
-                                                            onClick={() => {
-                                                                setOpenExpenseDropdown(null);
-                                                                setNewExpense({
-                                                                    name: expense.expense_name,
-                                                                    amount: expense.total_amount.toString(),
-                                                                    paidBy: expense.paid_by_id,
-                                                                    splitType: expense.split_type,
-                                                                    splitWith: expense.involved_person_ids
-                                                                });
-                                                                setEditingExpenseId(expense.id);
-                                                                setShowEditExpenseModal(true);
-                                                            }}
-                                                            className="w-full text-left px-4 py-3 text-xs font-black text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 flex items-center gap-3 transition-colors uppercase tracking-widest"
-                                                        >
-                                                            <Edit2 size={14} /> Edit
-                                                        </button>
-                                                        <button
-                                                            onClick={() => {
-                                                                setOpenExpenseDropdown(null);
-                                                                handleDeleteExpense(expense.id);
-                                                            }}
-                                                            className="w-full text-left px-4 py-3 text-xs font-black text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors uppercase tracking-widest"
-                                                        >
-                                                            <Trash2 size={14} /> Delete
-                                                        </button>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ))}
+                                        )
+                                    })}
                                 </div>
                             ) : (
                                 <div className="glass-card p-20 flex flex-col items-center justify-center text-center opacity-60">
@@ -703,10 +935,11 @@ const BillDetailPage: React.FC = () => {
                                     <h2 className="text-2xl font-black text-gray-900">Bill Members</h2>
                                     <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-1">Manage who's splitting this bill</p>
                                 </div>
-                                {bill.created_by === user?.id && (
+                                 {bill.created_by === user?.id && (
                                     <button 
                                         onClick={() => setShowAddPersonToExpenseModal(!showAddPersonToExpenseModal)}
-                                        className="p-3 bg-indigo-600 text-white rounded-xl shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center gap-2 font-black text-[10px] uppercase tracking-widest"
+                                        disabled={isStandard && (billDetails?.involvedPersons.length || 0) >= 3}
+                                        className="p-3 bg-indigo-600 text-white rounded-xl shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center gap-2 font-black text-[10px] uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none disabled:bg-gray-400"
                                     >
                                         <UserPlus size={16} /> Add Member
                                     </button>
@@ -727,11 +960,54 @@ const BillDetailPage: React.FC = () => {
 
                                     {showGuestForm ? (
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                            <input placeholder="First Name" className="px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-indigo-500 font-bold" value={guestData.firstName} onChange={e => setGuestData({ ...guestData, firstName: e.target.value })} />
-                                            <input placeholder="Last Name" className="px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-indigo-500 font-bold" value={guestData.lastName} onChange={e => setGuestData({ ...guestData, lastName: e.target.value })} />
-                                            <input placeholder="Nickname" className="px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-indigo-500 font-bold" value={guestData.nickname} onChange={e => setGuestData({ ...guestData, nickname: e.target.value })} />
-                                            <input placeholder="Email" className="px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-indigo-500 font-bold" value={guestData.email} onChange={e => setGuestData({ ...guestData, email: e.target.value })} />
-                                            <div className="sm:col-span-2 flex justify-end gap-3 mt-2">
+                                            <div>
+                                                <input 
+                                                    placeholder="First Name" 
+                                                    className={`w-full px-4 py-3 border rounded-xl outline-none font-bold transition-all ${fieldErrors.firstName ? 'bg-red-50 border-red-500' : 'bg-gray-50 border-gray-100 focus:bg-white focus:border-indigo-500'}`} 
+                                                    value={guestData.firstName} 
+                                                    onChange={e => {
+                                                        setGuestData({ ...guestData, firstName: e.target.value });
+                                                        if (fieldErrors.firstName) setFieldErrors(prev => ({ ...prev, firstName: '' }));
+                                                    }} 
+                                                />
+                                                {fieldErrors.firstName && <p className="mt-1 text-[10px] text-red-600 font-medium">{fieldErrors.firstName}</p>}
+                                            </div>
+                                            <div>
+                                                <input 
+                                                    placeholder="Last Name" 
+                                                    className={`w-full px-4 py-3 border rounded-xl outline-none font-bold transition-all ${fieldErrors.lastName ? 'bg-red-50 border-red-500' : 'bg-gray-50 border-gray-100 focus:bg-white focus:border-indigo-500'}`} 
+                                                    value={guestData.lastName} 
+                                                    onChange={e => {
+                                                        setGuestData({ ...guestData, lastName: e.target.value });
+                                                        if (fieldErrors.lastName) setFieldErrors(prev => ({ ...prev, lastName: '' }));
+                                                    }} 
+                                                />
+                                                {fieldErrors.lastName && <p className="mt-1 text-[10px] text-red-600 font-medium">{fieldErrors.lastName}</p>}
+                                            </div>
+                                            <div>
+                                                <input 
+                                                    placeholder="Nickname" 
+                                                    className={`w-full px-4 py-3 border rounded-xl outline-none font-bold transition-all ${fieldErrors.nickname ? 'bg-red-50 border-red-500' : 'bg-gray-50 border-gray-100 focus:bg-white focus:border-indigo-500'}`} 
+                                                    value={guestData.nickname} 
+                                                    onChange={e => {
+                                                        setGuestData({ ...guestData, nickname: e.target.value });
+                                                        if (fieldErrors.nickname) setFieldErrors(prev => ({ ...prev, nickname: '' }));
+                                                    }} 
+                                                />
+                                                {fieldErrors.nickname && <p className="mt-1 text-[10px] text-red-600 font-medium">{fieldErrors.nickname}</p>}
+                                            </div>
+                                            <div>
+                                                <input 
+                                                    placeholder="Email" 
+                                                    className={`w-full px-4 py-3 border rounded-xl outline-none font-bold transition-all ${fieldErrors.email ? 'bg-red-50 border-red-500' : 'bg-gray-50 border-gray-100 focus:bg-white focus:border-indigo-500'}`} 
+                                                    value={guestData.email} 
+                                                    onChange={e => {
+                                                        setGuestData({ ...guestData, email: e.target.value });
+                                                        if (fieldErrors.email) setFieldErrors(prev => ({ ...prev, email: '' }));
+                                                    }} 
+                                                />
+                                                {fieldErrors.email && <p className="mt-1 text-[10px] text-red-600 font-medium">{fieldErrors.email}</p>}
+                                            </div>                                            <div className="sm:col-span-2 flex justify-end gap-3 mt-2">
                                                 <button onClick={() => setShowAddPersonToExpenseModal(false)} className="px-6 py-3 font-bold text-gray-500 hover:text-gray-900 text-sm">Cancel</button>
                                                 <button onClick={addGuestToBill} className="px-8 py-3 bg-indigo-600 text-white font-black text-xs uppercase tracking-widest rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-100">Add Guest</button>
                                             </div>
@@ -783,16 +1059,15 @@ const BillDetailPage: React.FC = () => {
                                 </div>
                              )}
 
-                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                {billDetails.involvedPersons.map((person) => (
-                                    <div key={person.id} className="glass-card p-6 flex items-center justify-between group">
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-14 h-14 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 border-2 border-white shadow-inner flex items-center justify-center text-xl font-black text-indigo-700 uppercase">
+                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">                                 {billDetails.involvedPersons.map((person) => (
+                                    <div key={person.id} className="glass-card p-4 flex items-center justify-between group">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 border-2 border-white shadow-inner flex items-center justify-center text-sm font-black text-indigo-700 uppercase">
                                                 {person.nickname?.[0] || person.first_name?.[0]}
                                             </div>
                                             <div className="text-left">
-                                                <h4 className="text-lg font-black text-gray-900 uppercase tracking-tight">{person.nickname || person.first_name}</h4>
-                                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-0.5">
+                                                <h4 className="text-sm font-black text-gray-900 uppercase tracking-tight">{person.nickname || person.first_name}</h4>
+                                                <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mt-0.5">
                                                     {person.is_guest ? <span className="text-orange-500">Guest User</span> : 'Member'}
                                                 </p>
                                             </div>
@@ -800,9 +1075,9 @@ const BillDetailPage: React.FC = () => {
                                         {bill.created_by === user?.id && person.id !== user?.id && (
                                             <button 
                                                 onClick={() => handleDeletePerson(person.id)}
-                                                className="p-3 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                                                className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
                                             >
-                                                <Trash2 size={20} />
+                                                <Trash2 size={16} />
                                             </button>
                                         )}
                                     </div>
@@ -812,40 +1087,70 @@ const BillDetailPage: React.FC = () => {
                     )}
 
                     {activeTab === 'Payment' && (
-                        <div className="animate-in slide-in-from-bottom-4 duration-500 space-y-6">
-                            <div className="flex justify-between items-center px-2">
+                        <div className="animate-in slide-in-from-bottom-4 duration-500 space-y-8">
+                            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 px-2">
                                 <div className="text-left">
-                                    <h2 className="text-2xl font-black text-gray-900">Activity History</h2>
-                                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-1">Transaction log for this bill</p>
+                                    <h2 className="text-2xl font-black text-gray-900">Suggested Payments</h2>
+                                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-1">Granular breakdown of what each person owes per expense</p>
                                 </div>
                             </div>
-                            <div className="space-y-3">
-                                {activityHistory.length > 0 ? (
-                                    activityHistory.map((item) => (
-                                        <div key={item.id} className={`glass-card p-6 flex justify-between items-center group transition-all ${item.type === 'settlement' ? 'bg-green-50/20 border-green-100' : ''}`}>
-                                            <div className="flex items-center gap-4">
-                                                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner font-black text-sm uppercase ${item.type === 'settlement' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                                                    {item.type === 'settlement' ? <DollarSign size={20} /> : item.fromName[0]}
+
+                            <div className="grid grid-cols-1 gap-4">
+                                {perExpenseDebts.length > 0 ? (
+                                    perExpenseDebts.map((debt, index) => (
+                                        <div key={index} className={`glass-card p-6 border-l-4 transition-all ${debt.isSettled ? 'border-l-green-400 opacity-60' : 'border-l-indigo-600'}`}>
+                                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                                                <div className="flex items-center gap-5">
+                                                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg ${debt.isSettled ? 'bg-green-50 text-green-600' : 'bg-indigo-50 text-indigo-600'}`}>
+                                                        <Receipt size={24} />
+                                                    </div>
+                                                    <div className="text-left">
+                                                        <div className="flex items-center gap-2 mb-1">
+                                                            <h4 className="text-base font-black text-gray-900 uppercase tracking-tighter">{debt.expenseName}</h4>
+                                                            {debt.isSettled ? (
+                                                                <span className="text-[8px] font-black bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full uppercase tracking-widest">Completed</span>
+                                                            ) : (
+                                                                <span className="text-[9px] font-black bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full uppercase tracking-widest">Ongoing</span>
+                                                            )}
+                                                        </div>
+                                                        <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.1em]">
+                                                            <span className="text-gray-900">{debt.fromName}</span> owes <span className="text-gray-900">{debt.toName}</span>
+                                                        </p>
+                                                    </div>
                                                 </div>
-                                                <div className="text-left">
-                                                    <h4 className="text-base font-black text-gray-900 uppercase tracking-tight">{item.title}</h4>
-                                                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1 italic">{item.subtitle}</p>
+
+                                                <div className="flex items-center gap-8 justify-between md:justify-end">
+                                                    <div className="text-right">
+                                                        <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">{debt.isSettled ? 'Total Paid' : 'Remaining To Pay'}</p>
+                                                        <p className={`text-2xl font-black tabular-nums tracking-tighter ${debt.isSettled ? 'text-gray-400' : 'text-indigo-600'}`}>
+                                                            ₱{(debt.isSettled ? debt.amount : debt.remainingAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        </p>
+                                                        {!debt.isSettled && debt.settledAmount > 0 && (
+                                                            <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest mt-1">Total: ₱{debt.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                                                        )}
+                                                    </div>
+                                                    
+                                                    {!debt.isSettled && (
+                                                        <button 
+                                                            onClick={async () => {
+                                                                setPaymentTarget(debt);
+                                                                setPaymentAmount(debt.remainingAmount.toFixed(2));
+                                                                setSelectedExpenseForPay(debt.expenseId);
+                                                                setShowPayModal(true);
+                                                            }}
+                                                            className="px-3 py-2 bg-indigo-600 text-white font-black text-[9px] uppercase tracking-widest rounded-xl hover:bg-indigo-700 shadow-xl shadow-indigo-100 transition-all flex items-center gap-2"
+                                                        >
+                                                            <Check size={10} /> Settle Up
+                                                        </button>
+                                                    )}
                                                 </div>
-                                            </div>
-                                            <div className="text-right">
-                                                <p className={`text-2xl font-black tabular-nums tracking-tighter ${item.type === 'settlement' ? 'text-green-600' : 'text-gray-900'}`}>
-                                                    {item.type === 'settlement' ? '+ ' : ''}₱{item.amount.toLocaleString()}
-                                                </p>
-                                                <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg mt-2 inline-block ${item.status === 'Settled' || item.status === 'Completed' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
-                                                    {item.status}
-                                                </span>
                                             </div>
                                         </div>
                                     ))
                                 ) : (
                                     <div className="glass-card p-20 flex flex-col items-center justify-center text-center opacity-60">
-                                        <RefreshCcw size={32} className="text-gray-300 mb-4" />
-                                        <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">No activities yet</p>
+                                        <Check size={32} className="text-green-400 mb-4" />
+                                        <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">No payments needed at this time</p>
                                     </div>
                                 )}
                             </div>
@@ -862,20 +1167,20 @@ const BillDetailPage: React.FC = () => {
                             <h3 className="text-[10px] font-black text-indigo-500 uppercase tracking-[0.2em] mb-4">Summary</h3>
                             <div className="space-y-6 relative z-10">
                                 <div className="flex justify-between items-end">
-                                    <p className="text-4xl font-black text-gray-900 tabular-nums">₱{billDetails.expenses.reduce((sum, e) => sum + e.total_amount, 0).toLocaleString()}</p>
+                                    <p className="text-4xl font-black text-gray-900 tabular-nums">₱{billDetails.expenses.reduce((sum, e) => sum + e.total_amount, 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                                     <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Total Bill</p>
                                 </div>
 
-                                <div className="space-y-3 pt-6 border-t border-gray-100">
-                                    {computedDebts.length > 0 ? (
-                                        computedDebts.map((debt, index) => (
+                             <div className="space-y-3 pt-6 border-t border-gray-100">
+                                    {(computedDebts.filter(d => String(d.fromId) === myDebtId && d.amount > 0.01).length > 0) ? (
+                                        computedDebts.filter(d => String(d.fromId) === myDebtId && d.amount > 0.01).map((debt, index) => (
                                             <div key={index} className="flex flex-col gap-2 p-4 bg-gray-50 rounded-2xl border border-gray-100/50">
                                                 <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-gray-400">
-                                                    <span>From</span>
+                                                    <span>I Owe</span>
                                                     <span>To</span>
                                                 </div>
                                                 <div className="flex items-center justify-between">
-                                                    <span className="font-black text-gray-900 text-sm">{debt.fromName}</span>
+                                                    <span className="font-black text-indigo-600 text-sm">Me</span>
                                                     <div className="h-[1px] flex-1 mx-3 bg-gradient-to-r from-transparent via-gray-200 to-transparent relative">
                                                         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-gray-50 px-2">
                                                             <DollarSign size={10} className="text-indigo-400" />
@@ -883,51 +1188,27 @@ const BillDetailPage: React.FC = () => {
                                                     </div>
                                                     <span className="font-black text-gray-900 text-sm">{debt.toName}</span>
                                                 </div>
-                                                <p className="text-xl font-black text-indigo-600 tabular-nums mt-1 text-center">₱{debt.amount.toLocaleString()}</p>
+                                                <p className="text-xl font-black text-indigo-600 tabular-nums mt-1 text-center">₱{debt.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                                             </div>
                                         ))
                                     ) : (
                                         <div className="py-6 text-center bg-green-50 rounded-2xl border border-green-100">
-                                            <p className="text-xs font-black text-green-600 uppercase tracking-widest">Everything is Settled</p>
+                                            <p className="text-xs font-black text-green-600 uppercase tracking-widest">You are all settled!</p>
                                         </div>
                                     )}
                                 </div>
 
-                                {computedDebts.some(d => String(d.fromId) === String(user?.id) || String(d.fromId) === `guest_${guestUser?.id}`) && (
-                                    <button 
-                                        onClick={() => {
-                                            const debt = computedDebts.find(d => String(d.fromId) === String(user?.id) || String(d.fromId) === `guest_${guestUser?.id}`);
-                                            if (debt) {
-                                                setPaymentTarget(debt);
-                                                setPaymentAmount(debt.amount.toFixed(2));
-                                                setShowPayModal(true);
-                                            }
-                                        }}
-                                        className="w-full py-4 bg-gray-900 text-white font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-indigo-600 hover:scale-[1.02] active:scale-100 shadow-xl shadow-gray-200 transition-all flex items-center justify-center gap-3"
-                                    >
-                                        <DollarSign size={16} /> Settle My Debt
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Invite Link Card */}
-                        <div className="glass-card p-6 bg-gradient-to-br from-indigo-600 to-indigo-700 text-white border-0 shadow-xl shadow-indigo-100">
-                            <h4 className="text-[10px] font-black text-indigo-200 uppercase tracking-widest mb-3">Invite Friends</h4>
-                            <p className="text-xs font-bold text-indigo-100 mb-4 leading-relaxed">Share this code with your friends to let them join this bill.</p>
-                            <div className="flex gap-2">
-                                <div className="flex-1 bg-white/10 border border-white/10 rounded-xl px-4 py-3 font-black tracking-widest text-lg text-center">{bill.invite_code}</div>
                                 <button 
-                                    onClick={() => copyInviteCode(bill.invite_code)}
-                                    className="p-3 bg-white text-indigo-600 rounded-xl shadow-lg hover:scale-110 active:scale-95 transition-all"
+                                    onClick={() => setShowSummaryModal(true)}
+                                    className="w-full py-4 bg-gray-900 text-white font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-indigo-600 hover:scale-[1.02] active:scale-100 shadow-xl shadow-gray-200 transition-all flex items-center justify-center gap-3"
                                 >
-                                    <Copy size={20} />
+                                    <Eye size={16} /> View Summary
                                 </button>
+                            </div>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
 
             {/* Modals */}
             {showExpenseModal && (
@@ -948,64 +1229,183 @@ const BillDetailPage: React.FC = () => {
                                     placeholder="e.g. Ribshack Dinner"
                                     required
                                     value={newExpense.name}
-                                    onChange={e => setNewExpense({ ...newExpense, name: e.target.value })}
-                                    className="w-full px-6 py-4 bg-gray-50 border border-transparent rounded-2xl focus:bg-white focus:border-indigo-100 focus:ring-4 focus:ring-indigo-500/5 transition-all font-bold text-lg"
+                                    onChange={e => {
+                                        setNewExpense({ ...newExpense, name: e.target.value });
+                                        if (fieldErrors.name) setFieldErrors(prev => ({ ...prev, name: '' }));
+                                    }}
+                                    className={`w-full px-6 py-4 border rounded-2xl transition-all font-bold text-lg ${
+                                        fieldErrors.name ? 'bg-red-50 border-red-500 focus:ring-red-500/10' : 'bg-gray-50 border-transparent focus:bg-white focus:border-indigo-100 focus:ring-4 focus:ring-indigo-500/5'
+                                    }`}
                                 />
+                                {fieldErrors.name && (
+                                    <p className="mt-1 text-xs text-red-600 font-medium">{fieldErrors.name}</p>
+                                )}
                             </div>
 
-                            <div className="grid grid-cols-2 gap-6">
-                                <div>
-                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-3">Amount</label>
-                                    <div className="relative">
-                                        <span className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-300 font-black">₱</span>
-                                        <input 
-                                            type="number" 
-                                            step="0.01"
-                                            placeholder="0.00"
-                                            required
-                                            value={newExpense.amount}
-                                            onChange={e => setNewExpense({ ...newExpense, amount: e.target.value })}
-                                            className="w-full pl-10 pr-6 py-4 bg-gray-50 border border-transparent rounded-2xl focus:bg-white focus:border-indigo-100 focus:ring-4 focus:ring-indigo-500/5 transition-all font-black text-xl tabular-nums"
-                                        />
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-3">Paid By</label>
-                                    <select 
-                                        className="w-full px-4 py-4 bg-gray-50 border border-transparent rounded-2xl focus:bg-white focus:border-indigo-100 transition-all font-bold text-gray-900 appearance-none"
-                                        value={newExpense.paidBy}
-                                        onChange={e => setNewExpense({ ...newExpense, paidBy: e.target.value })}
-                                    >
-                                        <option value="">Select Person</option>
-                                        {billDetails.involvedPersons.map(p => (
-                                            <option key={p.id} value={p.id}>{p.nickname || p.first_name}</option>
-                                        ))}
-                                    </select>
+                            <div className="space-y-4">
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1">Payer Details</label>
+                                <div className="space-y-4">
+                                    {newExpense.paidBy.map((payer, idx) => {
+                                        const selectedPayerIds = newExpense.paidBy.map(p => String(p.id)).filter((id, i) => i !== idx && id !== '');
+                                        const availablePersons = billDetails?.involvedPersons.filter(p => !selectedPayerIds.includes(String(p.id)));
+
+                                        return (
+                                            <div key={idx} className="space-y-1">
+                                                <div className="flex gap-2 items-center">
+                                                    <div className="relative w-32 shrink-0">
+                                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300 font-black text-xs">₱</span>
+                                                        <input 
+                                                            type="number" 
+                                                            step="0.01"
+                                                            placeholder="0.00"
+                                                            value={payer.amount}
+                                                            onChange={e => {
+                                                                const newPaidBy = [...newExpense.paidBy];
+                                                                newPaidBy[idx].amount = e.target.value;
+                                                                const total = newPaidBy.reduce((acc, p) => acc + (parseFloat(p.amount) || 0), 0);
+                                                                setNewExpense({ ...newExpense, paidBy: newPaidBy, amount: total > 0 ? total.toString() : newExpense.amount });
+                                                                if (fieldErrors[`paidBy_${idx}_amount`]) setFieldErrors(prev => ({ ...prev, [`paidBy_${idx}_amount`]: '' }));
+                                                            }}
+                                                            className={`w-full pl-8 pr-4 py-4 border rounded-2xl transition-all font-black text-sm tabular-nums ${
+                                                                fieldErrors[`paidBy_${idx}_amount`] ? 'bg-red-50 border-red-500' : 'bg-gray-50 border-transparent focus:bg-white focus:border-indigo-100'
+                                                            }`}
+                                                        />
+                                                    </div>
+
+                                                    <select
+                                                        className={`flex-1 px-4 py-4 border rounded-2xl transition-all font-bold text-gray-900 appearance-none text-sm ${
+                                                            fieldErrors[`paidBy_${idx}_id`] ? 'bg-red-50 border-red-500' : 'bg-gray-50 border-transparent focus:bg-white focus:border-indigo-100'
+                                                        }`}
+                                                        value={payer.id}
+                                                        onChange={e => {
+                                                            const newPaidBy = [...newExpense.paidBy];
+                                                            newPaidBy[idx].id = e.target.value;
+                                                            setNewExpense({ ...newExpense, paidBy: newPaidBy });
+                                                            if (fieldErrors[`paidBy_${idx}_id`]) setFieldErrors(prev => ({ ...prev, [`paidBy_${idx}_id`]: '' }));
+                                                        }}
+                                                    >
+                                                        <option value="">Select Person</option>
+                                                        {availablePersons?.map(p => (
+                                                            <option key={p.id} value={p.id}>{p.nickname || p.first_name}</option>
+                                                        ))}
+                                                    </select>
+
+                                                    {idx === newExpense.paidBy.length - 1 && newExpense.paidBy.length < (isStandard ? 3 : (billDetails?.involvedPersons.length || 0)) ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setNewExpense({ ...newExpense, paidBy: [...newExpense.paidBy, { id: '', amount: '' }] });
+                                                            }}
+                                                            className="p-4 bg-indigo-50 text-indigo-600 rounded-2xl hover:bg-indigo-100 transition-all shrink-0"
+                                                        >
+                                                            <Plus size={20} />
+                                                        </button>
+                                                    ) : newExpense.paidBy.length > 1 ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                const newPaidBy = newExpense.paidBy.filter((_, i) => i !== idx);
+                                                                const total = newPaidBy.reduce((acc, p) => acc + (parseFloat(p.amount) || 0), 0);
+                                                                setNewExpense({ ...newExpense, paidBy: newPaidBy, amount: total > 0 ? total.toString() : newExpense.amount });
+                                                                setFieldErrors(prev => {
+                                                                    const next = { ...prev };
+                                                                    Object.keys(next).forEach(k => { if(k.startsWith('paidBy_')) delete next[k]; });
+                                                                    return next;
+                                                                });
+                                                            }}
+                                                            className="p-4 bg-red-50 text-red-600 rounded-2xl hover:bg-red-100 transition-all shrink-0"
+                                                        >
+                                                            <X size={20} />
+                                                        </button>
+                                                    ) : (
+                                                        <div className="w-12 h-12"></div>
+                                                    )}
+                                                </div>
+                                                {(fieldErrors[`paidBy_${idx}_amount`] || fieldErrors[`paidBy_${idx}_id`]) && (
+                                                    <p className="text-[10px] text-red-600 font-medium pl-1">
+                                                        {fieldErrors[`paidBy_${idx}_amount`] || fieldErrors[`paidBy_${idx}_id`]}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             </div>
 
                             <div>
-                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Split With</label>
-                                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-                                    {billDetails.involvedPersons.map(p => (
-                                        <button
-                                            key={p.id}
+                                <div className="flex items-center justify-between mb-4">
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Split Method</label>
+                                    <div className="flex bg-gray-100 rounded-lg p-1">
+                                        <button 
                                             type="button"
-                                            onClick={() => {
-                                                const current = [...newExpense.splitWith];
-                                                if (current.includes(p.id)) {
-                                                    setNewExpense({ ...newExpense, splitWith: current.filter(id => id !== p.id) });
-                                                } else {
-                                                    setNewExpense({ ...newExpense, splitWith: [...current, p.id] });
-                                                }
-                                            }}
-                                            className={`p-3 rounded-xl flex items-center justify-between border-2 transition-all ${newExpense.splitWith.includes(p.id) ? 'bg-indigo-50 border-indigo-500' : 'bg-gray-50 border-transparent hover:border-gray-200'}`}
+                                            onClick={() => setNewExpense({ ...newExpense, splitType: 'equally' })}
+                                            className={`px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded-md transition-all ${newExpense.splitType === 'equally' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-400 hover:text-gray-600'}`}
                                         >
-                                            <span className="text-xs font-bold text-gray-900">{p.nickname || p.first_name}</span>
-                                            {newExpense.splitWith.includes(p.id) && <Check size={14} className="text-indigo-600" />}
+                                            Equally
                                         </button>
-                                    ))}
+                                        <button 
+                                            type="button"
+                                            onClick={() => setNewExpense({ ...newExpense, splitType: 'custom' })}
+                                            className={`px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded-md transition-all ${newExpense.splitType === 'custom' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-400 hover:text-gray-600'}`}
+                                        >
+                                            Custom
+                                        </button>
+                                    </div>
                                 </div>
+
+                                {newExpense.splitType === 'equally' && (
+                                    <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar animate-in slide-in-from-top-2 mt-4">
+                                        {billDetails.involvedPersons.map(p => {
+                                            const activeCount = billDetails.involvedPersons.length;
+                                            const totalAmt = parseFloat(newExpense.amount) || 0;
+                                            const splitAmt = activeCount > 0 ? (totalAmt / activeCount).toFixed(2) : '0.00';
+                                            return (
+                                                <div
+                                                    key={p.id}
+                                                    className="p-3 rounded-xl flex items-center justify-between border-2 border-transparent bg-gray-50 opacity-80"
+                                                >
+                                                    <span className="text-sm font-bold text-gray-600">{p.nickname || p.first_name}</span>
+                                                    <span className="text-xs font-black text-gray-500 bg-gray-200 px-3 py-1 rounded-full">
+                                                        ₱{splitAmt}
+                                                    </span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+
+                                {newExpense.splitType === 'custom' && (
+                                    <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar animate-in slide-in-from-top-2 mt-4">
+                                        {billDetails.involvedPersons.map(p => {
+                                            const isChecked = newExpense.splitWith.includes(p.id);
+                                            const activeCount = newExpense.splitWith.length;
+                                            const totalAmt = parseFloat(newExpense.amount) || 0;
+                                            const splitAmt = activeCount > 0 ? (totalAmt / activeCount).toFixed(2) : '0.00';
+                                            return (
+                                                <button
+                                                    key={p.id}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const current = [...newExpense.splitWith];
+                                                        if (current.includes(p.id)) {
+                                                            setNewExpense({ ...newExpense, splitWith: current.filter(id => id !== p.id) });
+                                                        } else {
+                                                            setNewExpense({ ...newExpense, splitWith: [...current, p.id] });
+                                                        }
+                                                    }}
+                                                    className={`p-3 rounded-xl flex items-center justify-between border-2 transition-all ${isChecked ? 'bg-indigo-50 border-indigo-500' : 'bg-gray-50 border-transparent hover:border-gray-200'}`}
+                                                >
+                                                    <span className={`text-sm font-bold ${isChecked ? 'text-indigo-900' : 'text-gray-600'}`}>{p.nickname || p.first_name}</span>
+                                                    {isChecked && (
+                                                        <span className="text-xs font-black text-indigo-600 bg-indigo-100 px-3 py-1 rounded-full">
+                                                            ₱{splitAmt}
+                                                        </span>
+                                                    )}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
                             </div>
 
                             <button className="w-full py-5 bg-indigo-600 text-white font-black uppercase tracking-widest rounded-2xl hover:bg-indigo-700 shadow-2xl shadow-indigo-100 transition-all">Save Expense</button>
@@ -1032,68 +1432,321 @@ const BillDetailPage: React.FC = () => {
                                     placeholder="e.g. Ribshack Dinner"
                                     required
                                     value={newExpense.name}
-                                    onChange={e => setNewExpense({ ...newExpense, name: e.target.value })}
-                                    className="w-full px-6 py-4 bg-gray-50 border border-transparent rounded-2xl focus:bg-white focus:border-indigo-100 focus:ring-4 focus:ring-indigo-500/5 transition-all font-bold text-lg"
+                                    onChange={e => {
+                                        setNewExpense({ ...newExpense, name: e.target.value });
+                                        if (fieldErrors.name) setFieldErrors(prev => ({ ...prev, name: '' }));
+                                    }}
+                                    className={`w-full px-6 py-4 border rounded-2xl transition-all font-bold text-lg ${
+                                        fieldErrors.name ? 'bg-red-50 border-red-500 focus:ring-red-500/10' : 'bg-gray-50 border-transparent focus:bg-white focus:border-indigo-100 focus:ring-4 focus:ring-indigo-500/5'
+                                    }`}
                                 />
+                                {fieldErrors.name && (
+                                    <p className="mt-1 text-xs text-red-600 font-medium">{fieldErrors.name}</p>
+                                )}
                             </div>
 
-                            <div className="grid grid-cols-2 gap-6">
-                                <div>
-                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-3">Amount</label>
-                                    <div className="relative">
-                                        <span className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-300 font-black">₱</span>
-                                        <input 
-                                            type="number" 
-                                            step="0.01"
-                                            placeholder="0.00"
-                                            required
-                                            value={newExpense.amount}
-                                            onChange={e => setNewExpense({ ...newExpense, amount: e.target.value })}
-                                            className="w-full pl-10 pr-6 py-4 bg-gray-50 border border-transparent rounded-2xl focus:bg-white focus:border-indigo-100 focus:ring-4 focus:ring-indigo-500/5 transition-all font-black text-xl tabular-nums"
-                                        />
+                            <div className="space-y-4">
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1">Payer Details</label>
+                                <div className="space-y-4">
+                                                    {newExpense.paidBy.map((payer, idx) => {
+                                                        // Unique Payer Selection Logic
+                                                        const selectedPayerIds = newExpense.paidBy.map(p => String(p.id)).filter((id, i) => i !== idx && id !== '');
+                                                        const availablePersons = billDetails?.involvedPersons.filter(p => !selectedPayerIds.includes(String(p.id)));
+
+                                                        return (
+                                            <div key={idx} className="space-y-1">
+                                                <div className="flex gap-2 items-center">
+                                                    <div className="relative w-32 shrink-0">
+                                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300 font-black text-xs">₱</span>
+                                                        <input 
+                                                            type="number" 
+                                                            step="0.01"
+                                                            placeholder="0.00"
+                                                            value={payer.amount}
+                                                            onChange={e => {
+                                                                const newPaidBy = [...newExpense.paidBy];
+                                                                newPaidBy[idx].amount = e.target.value;
+                                                                const total = newPaidBy.reduce((acc, p) => acc + (parseFloat(p.amount) || 0), 0);
+                                                                setNewExpense({ ...newExpense, paidBy: newPaidBy, amount: total > 0 ? total.toString() : newExpense.amount });
+                                                                if (fieldErrors[`paidBy_${idx}_amount`]) setFieldErrors(prev => ({ ...prev, [`paidBy_${idx}_amount`]: '' }));
+                                                            }}
+                                                            className={`w-full pl-8 pr-4 py-4 border rounded-2xl transition-all font-black text-sm tabular-nums ${
+                                                                fieldErrors[`paidBy_${idx}_amount`] ? 'bg-red-50 border-red-500' : 'bg-gray-50 border-transparent focus:bg-white focus:border-indigo-100'
+                                                            }`}
+                                                        />
+                                                    </div>
+
+                                                    <select
+                                                        className={`flex-1 px-4 py-4 border rounded-2xl transition-all font-bold text-gray-900 appearance-none text-sm ${
+                                                            fieldErrors[`paidBy_${idx}_id`] ? 'bg-red-50 border-red-500' : 'bg-gray-50 border-transparent focus:bg-white focus:border-indigo-100'
+                                                        }`}
+                                                        value={payer.id}
+                                                        onChange={e => {
+                                                            const newPaidBy = [...newExpense.paidBy];
+                                                            newPaidBy[idx].id = e.target.value;
+                                                            setNewExpense({ ...newExpense, paidBy: newPaidBy });
+                                                            if (fieldErrors[`paidBy_${idx}_id`]) setFieldErrors(prev => ({ ...prev, [`paidBy_${idx}_id`]: '' }));
+                                                        }}
+                                                    >
+                                                        <option value="">Select Person</option>
+                                                        {availablePersons?.map(p => (
+                                                            <option key={p.id} value={p.id}>{p.nickname || p.first_name}</option>
+                                                        ))}
+                                                    </select>
+
+                                                    {idx === newExpense.paidBy.length - 1 && newExpense.paidBy.length < (isStandard ? 3 : (billDetails?.involvedPersons.length || 0)) ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setNewExpense({ ...newExpense, paidBy: [...newExpense.paidBy, { id: '', amount: '' }] });
+                                                            }}
+                                                            className="p-4 bg-indigo-50 text-indigo-600 rounded-2xl hover:bg-indigo-100 transition-all shrink-0"
+                                                        >
+                                                            <Plus size={20} />
+                                                        </button>
+                                                    ) : newExpense.paidBy.length > 1 ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                const newPaidBy = newExpense.paidBy.filter((_, i) => i !== idx);
+                                                                const total = newPaidBy.reduce((acc, p) => acc + (parseFloat(p.amount) || 0), 0);
+                                                                setNewExpense({ ...newExpense, paidBy: newPaidBy, amount: total > 0 ? total.toString() : newExpense.amount });
+                                                                setFieldErrors(prev => {
+                                                                    const next = { ...prev };
+                                                                    Object.keys(next).forEach(k => { if(k.startsWith('paidBy_')) delete next[k]; });
+                                                                    return next;
+                                                                });
+                                                            }}
+                                                            className="p-4 bg-red-50 text-red-600 rounded-2xl hover:bg-red-100 transition-all shrink-0"
+                                                        >
+                                                            <X size={20} />
+                                                        </button>
+                                                    ) : (
+                                                        <div className="w-12 h-12"></div>
+                                                    )}
+                                                </div>
+                                                {(fieldErrors[`paidBy_${idx}_amount`] || fieldErrors[`paidBy_${idx}_id`]) && (
+                                                    <p className="text-[10px] text-red-600 font-medium pl-1">
+                                                        {fieldErrors[`paidBy_${idx}_amount`] || fieldErrors[`paidBy_${idx}_id`]}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
                                     </div>
                                 </div>
-                                <div>
-                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-3">Paid By</label>
-                                    <select 
-                                        className="w-full px-4 py-4 bg-gray-50 border border-transparent rounded-2xl focus:bg-white focus:border-indigo-100 transition-all font-bold text-gray-900 appearance-none"
-                                        value={newExpense.paidBy}
-                                        onChange={e => setNewExpense({ ...newExpense, paidBy: e.target.value })}
-                                    >
-                                        <option value="">Select Person</option>
-                                        {billDetails.involvedPersons.map(p => (
-                                            <option key={p.id} value={p.id}>{p.nickname || p.first_name}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                            </div>
 
                             <div>
-                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Split With</label>
-                                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-                                    {billDetails.involvedPersons.map(p => (
-                                        <button
-                                            key={p.id}
+                                <div className="flex items-center justify-between mb-4">
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Split Method</label>
+                                    <div className="flex bg-gray-100 rounded-lg p-1">
+                                        <button 
                                             type="button"
-                                            onClick={() => {
-                                                const current = [...newExpense.splitWith];
-                                                if (current.includes(p.id)) {
-                                                    setNewExpense({ ...newExpense, splitWith: current.filter(id => id !== p.id) });
-                                                } else {
-                                                    setNewExpense({ ...newExpense, splitWith: [...current, p.id] });
-                                                }
-                                            }}
-                                            className={`p-3 rounded-xl flex items-center justify-between border-2 transition-all ${newExpense.splitWith.includes(p.id) ? 'bg-indigo-50 border-indigo-500' : 'bg-gray-50 border-transparent hover:border-gray-200'}`}
+                                            onClick={() => setNewExpense({ ...newExpense, splitType: 'equally' })}
+                                            className={`px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded-md transition-all ${newExpense.splitType === 'equally' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-400 hover:text-gray-600'}`}
                                         >
-                                            <span className="text-xs font-bold text-gray-900">{p.nickname || p.first_name}</span>
-                                            {newExpense.splitWith.includes(p.id) && <Check size={14} className="text-indigo-600" />}
+                                            Equally
                                         </button>
-                                    ))}
+                                        <button 
+                                            type="button"
+                                            onClick={() => setNewExpense({ ...newExpense, splitType: 'custom' })}
+                                            className={`px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded-md transition-all ${newExpense.splitType === 'custom' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-400 hover:text-gray-600'}`}
+                                        >
+                                            Custom
+                                        </button>
+                                    </div>
                                 </div>
+
+                                {newExpense.splitType === 'equally' && (
+                                    <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar animate-in slide-in-from-top-2 mt-4">
+                                        {billDetails.involvedPersons.map(p => {
+                                            const activeCount = billDetails.involvedPersons.length;
+                                            const totalAmt = parseFloat(newExpense.amount) || 0;
+                                            const splitAmt = activeCount > 0 ? (totalAmt / activeCount).toFixed(2) : '0.00';
+                                            return (
+                                                <div
+                                                    key={p.id}
+                                                    className="p-3 rounded-xl flex items-center justify-between border-2 border-transparent bg-gray-50 opacity-80"
+                                                >
+                                                    <span className="text-sm font-bold text-gray-600">{p.nickname || p.first_name}</span>
+                                                    <span className="text-xs font-black text-gray-500 bg-gray-200 px-3 py-1 rounded-full">
+                                                        ₱{splitAmt}
+                                                    </span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+
+                                {newExpense.splitType === 'custom' && (
+                                    <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar animate-in slide-in-from-top-2 mt-4">
+                                        {billDetails.involvedPersons.map(p => {
+                                            const isChecked = newExpense.splitWith.includes(p.id);
+                                            const activeCount = newExpense.splitWith.length;
+                                            const totalAmt = parseFloat(newExpense.amount) || 0;
+                                            const splitAmt = activeCount > 0 ? (totalAmt / activeCount).toFixed(2) : '0.00';
+                                            return (
+                                                <button
+                                                    key={p.id}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const current = [...newExpense.splitWith];
+                                                        if (current.includes(p.id)) {
+                                                            setNewExpense({ ...newExpense, splitWith: current.filter(id => id !== p.id) });
+                                                        } else {
+                                                            setNewExpense({ ...newExpense, splitWith: [...current, p.id] });
+                                                        }
+                                                    }}
+                                                    className={`p-3 rounded-xl flex items-center justify-between border-2 transition-all ${isChecked ? 'bg-indigo-50 border-indigo-500' : 'bg-gray-50 border-transparent hover:border-gray-200'}`}
+                                                >
+                                                    <span className={`text-sm font-bold ${isChecked ? 'text-indigo-900' : 'text-gray-600'}`}>{p.nickname || p.first_name}</span>
+                                                    {isChecked && (
+                                                        <span className="text-xs font-black text-indigo-600 bg-indigo-100 px-3 py-1 rounded-full">
+                                                            ₱{splitAmt}
+                                                        </span>
+                                                    )}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
                             </div>
 
                             <button className="w-full py-5 bg-indigo-600 text-white font-black uppercase tracking-widest rounded-2xl hover:bg-indigo-700 shadow-2xl shadow-indigo-100 transition-all">Update Expense</button>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {showViewExpenseModal && viewingExpense && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-[300] p-4 animate-in fade-in duration-300">
+                    <div className="bg-white rounded-[2rem] p-10 w-full max-w-lg shadow-2xl animate-in zoom-in-95 duration-300 relative">
+                        <div className="absolute top-8 right-8 flex items-center gap-2">
+                            <div className="relative">
+                                <button
+                                    onClick={() => setShowViewExpenseMenu(!showViewExpenseMenu)}
+                                    className="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-all"
+                                >
+                                    <MoreVertical size={20} />
+                                </button>
+                                {showViewExpenseMenu && (
+                                    <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-100 rounded-2xl shadow-xl z-30 py-2 animate-in fade-in zoom-in-95 duration-200">
+                                        <button
+                                            onClick={() => {
+                                                setShowViewExpenseMenu(false);
+                                                setShowViewExpenseModal(false);
+                                                // Trigger edit logic
+                                                let initialPaidBy = [];
+                                                if (viewingExpense.payers && viewingExpense.payers.length > 0) {
+                                                    initialPaidBy = viewingExpense.payers.map((p: any) => ({
+                                                        id: p.guest_user_id ? `guest_${p.guest_user_id}` : p.user_id,
+                                                        amount: p.amount ? p.amount.toString() : ''
+                                                    }));
+                                                } else {
+                                                    initialPaidBy = [{ id: viewingExpense.paid_by_id, amount: viewingExpense.total_amount.toString() }];
+                                                }
+                                                setNewExpense({
+                                                    name: viewingExpense.expense_name,
+                                                    amount: viewingExpense.total_amount.toString(),
+                                                    paidBy: initialPaidBy,
+                                                    splitType: viewingExpense.split_type,
+                                                    splitWith: viewingExpense.involved_person_ids
+                                                });
+                                                setEditingExpenseId(viewingExpense.id);
+                                                setShowEditExpenseModal(true);
+                                            }}
+                                            className="w-full text-left px-4 py-3 text-xs font-black text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 flex items-center gap-3 transition-colors uppercase tracking-widest"
+                                        >
+                                            <Edit2 size={14} /> Edit
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                setShowViewExpenseMenu(false);
+                                                setShowViewExpenseModal(false);
+                                                handleDeleteExpense(viewingExpense.id);
+                                            }}
+                                            className="w-full text-left px-4 py-3 text-xs font-black text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors uppercase tracking-widest"
+                                        >
+                                            <Trash2 size={14} /> Delete
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                            <button 
+                                onClick={() => {
+                                    setShowViewExpenseModal(false);
+                                    setShowViewExpenseMenu(false);
+                                }} 
+                                className="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-all"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="text-center mb-10 mt-4">
+                            <div className="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-[2rem] flex items-center justify-center mx-auto mb-6">
+                                <Receipt size={40} />
+                            </div>
+                            <h2 className="text-3xl font-black text-gray-900 uppercase tracking-tighter">{viewingExpense.expense_name}</h2>
+                            <p className="text-xs font-bold text-gray-400 mt-2 uppercase tracking-widest">{new Date(viewingExpense.created_at).toLocaleDateString(undefined, { dateStyle: 'long' })}</p>
+                        </div>
+
+                        <div className="space-y-8">
+                            <div className="text-center bg-gray-50 rounded-3xl p-8 border border-gray-100/50">
+                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2">Total Amount</p>
+                                <p className="text-5xl font-black text-gray-900 tabular-nums tracking-tighter">₱{viewingExpense.total_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                            </div>
+
+                            <div className="space-y-4">
+                                <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Payer Details</h4>
+                                <div className="space-y-3">
+                                    {viewingExpense.payers && viewingExpense.payers.length > 0 ? (
+                                        viewingExpense.payers.map((p: any, idx) => {
+                                            const person = billDetails.involvedPersons.find(ip => (p.guest_user_id ? ip.guest_user_id === p.guest_user_id : ip.user_id === p.user_id));
+                                            return (
+                                                <div key={idx} className="flex justify-between items-center p-4 bg-white border border-gray-100 rounded-2xl shadow-sm">
+                                                    <span className="font-bold text-gray-900">{person?.nickname || 'Unknown'}</span>
+                                                    <span className="font-black text-indigo-600 tabular-nums">₱{p.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                </div>
+                                            );
+                                        })
+                                    ) : (
+                                        <div className="flex justify-between items-center p-4 bg-white border border-gray-100 rounded-2xl shadow-sm">
+                                            <span className="font-bold text-gray-900">
+                                                {billDetails.involvedPersons.find(p => p.id === viewingExpense.paid_by_id)?.nickname || 'Unknown'}
+                                            </span>
+                                            <span className="font-black text-indigo-600 tabular-nums">₱{viewingExpense.total_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="space-y-4">
+                                <div className="flex justify-between items-center">
+                                    <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Split Breakdown</h4>
+                                    <span className="text-[9px] font-black text-indigo-500 bg-indigo-50 px-2 py-1 rounded-md uppercase tracking-widest">
+                                        {viewingExpense.split_type}
+                                    </span>
+                                </div>
+                                <div className="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto pr-2 custom-scrollbar">
+                                    {viewingExpense.involved_person_ids.map(pid => {
+                                        const p = billDetails.involvedPersons.find(ip => ip.id === pid);
+                                        const share = viewingExpense.total_amount / viewingExpense.involved_person_ids.length;
+                                        return (
+                                            <div key={pid} className="flex justify-between items-center p-3 bg-gray-50/50 rounded-xl border border-transparent">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center text-[10px] font-black text-gray-400 border border-gray-100 uppercase">
+                                                        {p?.nickname?.[0] || '?'}
+                                                    </div>
+                                                    <span className="text-xs font-bold text-gray-600">{p?.nickname || 'Unknown'}</span>
+                                                </div>
+                                                <span className="text-xs font-black text-gray-400 tabular-nums">₱{share.toFixed(2)}</span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}
@@ -1149,9 +1802,17 @@ const BillDetailPage: React.FC = () => {
                                     type="text" 
                                     required
                                     value={newBillName}
-                                    onChange={e => setNewBillName(e.target.value)}
-                                    className="w-full px-6 py-4 bg-gray-50 border border-transparent rounded-2xl focus:bg-white focus:border-indigo-100 transition-all font-bold text-lg"
+                                    onChange={e => {
+                                        setNewBillName(e.target.value);
+                                        if (fieldErrors.billName) setFieldErrors(prev => ({ ...prev, billName: '' }));
+                                    }}
+                                    className={`w-full px-6 py-4 border rounded-2xl transition-all font-bold text-lg ${
+                                        fieldErrors.billName ? 'bg-red-50 border-red-500' : 'bg-gray-50 border-transparent focus:bg-white focus:border-indigo-100'
+                                    }`}
                                 />
+                                {fieldErrors.billName && (
+                                    <p className="mt-1 text-[10px] text-red-600 font-medium">{fieldErrors.billName}</p>
+                                )}
                             </div>
 
                             <div className="flex flex-col gap-3">
@@ -1172,6 +1833,197 @@ const BillDetailPage: React.FC = () => {
                 confirmText={confirmModal.confirmText}
                 confirmVariant={confirmModal.confirmVariant}
             />
+            {/* Summary Modal */}
+            {showSummaryModal && (
+                <div className="fixed inset-0 bg-black/70 backdrop-blur-xl flex items-center justify-center z-[500] p-4 md:p-8 animate-in fade-in duration-300">
+                    <div className="bg-white rounded-[2.5rem] w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col shadow-[0_0_100px_rgba(0,0,0,0.2)] animate-in zoom-in-95 duration-300">
+                        {/* Modal Header */}
+                        <div className="p-8 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                            <div>
+                                <h2 className="text-3xl font-black text-gray-900 uppercase tracking-tighter">Bill Summary Statement</h2>
+                                <p className="text-xs font-bold text-gray-400 uppercase tracking-[0.2em] mt-1">{bill.bill_name} • {new Date().toLocaleDateString()}</p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <button 
+                                    onClick={() => window.print()}
+                                    className="px-6 py-3 bg-white border border-gray-200 text-gray-900 font-black text-xs uppercase tracking-widest rounded-xl hover:bg-gray-50 shadow-sm transition-all"
+                                >
+                                    Print Statement
+                                </button>
+                                <button onClick={() => setShowSummaryModal(false)} className="p-3 bg-gray-200/50 hover:bg-red-50 rounded-full text-gray-400 hover:text-red-600 transition-all">
+                                    <X size={24} />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Modal Content - Scrollable */}
+                        <div className="flex-1 overflow-y-auto p-8 md:p-12 space-y-12 print:p-0">
+                            {/* Section 1: All Expenses */}
+                            <section>
+                                <h3 className="text-[10px] font-black text-indigo-500 uppercase tracking-[0.3em] mb-6 flex items-center gap-2">
+                                    <Receipt size={14} /> Expense Ledger
+                                </h3>
+                                <div className="overflow-hidden rounded-2xl border border-gray-100 shadow-sm">
+                                    <table className="w-full text-left border-collapse">
+                                        <thead>
+                                            <tr className="bg-gray-50 border-b border-gray-100">
+                                                <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Date</th>
+                                                <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Description</th>
+                                                <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Paid By</th>
+                                                <th className="px-6 py-4 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Amount</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {billDetails.expenses.map((exp, idx) => {
+                                                const payerNames = exp.payers 
+                                                    ? exp.payers.map(pr => {
+                                                        const p = billDetails.involvedPersons.find(ip => (pr.user_id ? ip.user_id === pr.user_id : ip.guest_user_id === pr.guest_user_id));
+                                                        return p?.nickname || 'Someone';
+                                                      }).join(', ')
+                                                    : billDetails.involvedPersons.find(p => p.id === exp.paid_by_id)?.nickname || 'Someone';
+                                                
+                                                return (
+                                                    <tr key={idx} className="border-b border-gray-50 group hover:bg-indigo-50/20 transition-all">
+                                                        <td className="px-6 py-4 text-xs font-bold text-gray-400">{new Date(exp.created_at).toLocaleDateString()}</td>
+                                                        <td className="px-6 py-4 text-sm font-black text-gray-900">{exp.expense_name}</td>
+                                                        <td className="px-6 py-4 text-xs font-black text-indigo-600">{payerNames}</td>
+                                                        <td className="px-6 py-4 text-sm font-black text-gray-900 text-right tabular-nums">₱{exp.total_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                        <tfoot>
+                                            <tr className="bg-gray-900 text-white">
+                                                <td colSpan={3} className="px-6 py-5 text-[10px] font-black uppercase tracking-widest">Total Expenditure</td>
+                                                <td className="px-6 py-5 text-xl font-black text-right tabular-nums">
+                                                    ₱{billDetails.expenses.reduce((sum, e) => sum + e.total_amount, 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </section>
+
+                            {/* Section 2: Contribution Breakdown */}
+                            <section>
+                                <h3 className="text-[10px] font-black text-indigo-500 uppercase tracking-[0.3em] mb-6 flex items-center gap-2">
+                                    <UserPlus size={14} /> Member Contributions
+                                </h3>
+                                <div className="overflow-hidden rounded-2xl border border-gray-100 shadow-sm">
+                                    <table className="w-full text-left border-collapse">
+                                        <thead>
+                                            <tr className="bg-gray-50 border-b border-gray-100">
+                                                <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Member</th>
+                                                <th className="px-6 py-4 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Paid</th>
+                                                <th className="px-6 py-4 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Fair Share</th>
+                                                <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Status</th>
+                                                <th className="px-6 py-4 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Balance</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {billDetails.involvedPersons.map((person, idx) => {
+                                                const paid = billDetails.expenses.reduce((sum, exp) => {
+                                                    if (exp.payers) {
+                                                        const myPayerRecord = exp.payers.find(pr => (person.user_id ? pr.user_id === person.user_id : pr.guest_user_id === person.guest_user_id));
+                                                        return sum + (myPayerRecord ? Number(myPayerRecord.amount) : 0);
+                                                    } else {
+                                                        return sum + (String(exp.paid_by_id) === String(person.id) ? Number(exp.total_amount) : 0);
+                                                    }
+                                                }, 0);
+
+                                                const share = billDetails.expenses.reduce((sum, exp) => {
+                                                    if (exp.involved_person_ids.includes(person.id)) {
+                                                        if (exp.splits && exp.splits.length > 0 && exp.split_type === 'custom') {
+                                                            const mySplit = exp.splits.find(s => (person.user_id ? s.user_id === person.user_id : s.guest_user_id === person.guest_user_id));
+                                                            return sum + (mySplit ? Number(mySplit.amount) : 0);
+                                                        } else {
+                                                            return sum + (exp.total_amount / exp.involved_person_ids.length);
+                                                        }
+                                                    }
+                                                    return sum;
+                                                }, 0);
+
+                                                const balance = paid - share;
+
+                                                return (
+                                                    <tr key={idx} className="border-b border-gray-50 group hover:bg-indigo-50/10 transition-all">
+                                                        <td className="px-6 py-4">
+                                                            <div className="flex items-center gap-3">
+                                                                <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center font-black text-indigo-600 text-[10px]">
+                                                                    {(person.nickname || person.first_name || 'U').substring(0, 2).toUpperCase()}
+                                                                </div>
+                                                                <div>
+                                                                    <p className="text-sm font-black text-gray-900">{person.nickname || person.first_name}</p>
+                                                                    <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest">{person.is_guest ? 'Guest' : 'Member'}</p>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-6 py-4 text-right text-sm font-black text-green-600 tabular-nums">
+                                                            ₱{paid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        </td>
+                                                        <td className="px-6 py-4 text-right text-sm font-black text-indigo-600 tabular-nums">
+                                                            ₱{share.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        </td>
+                                                        <td className="px-6 py-4">
+                                                            <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest ${balance >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                                                {balance >= 0 ? 'To Receive' : 'To Pay'}
+                                                            </span>
+                                                        </td>
+                                                        <td className={`px-6 py-4 text-right text-sm font-black tabular-nums ${balance >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                                            ₱{Math.abs(balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </section>
+
+                            {/* Section 3: Final Suggested Payments */}
+                            <section>
+                                <h3 className="text-[10px] font-black text-indigo-500 uppercase tracking-[0.3em] mb-6 flex items-center gap-2">
+                                    <DollarSign size={14} /> Settlement Plan
+                                </h3>
+                                <div className="space-y-4 max-w-2xl mx-auto">
+                                    {computedDebts.filter(d => d.amount > 0.01).length > 0 ? (
+                                        computedDebts.filter(d => d.amount > 0.01).map((debt, index) => (
+                                            <div key={index} className="flex items-center justify-between p-6 bg-indigo-50/50 rounded-[2rem] border border-indigo-100 relative overflow-hidden group">
+                                                <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/5 rounded-full -mr-12 -mt-12 transition-transform group-hover:scale-150 duration-700"></div>
+                                                <div className="flex items-center gap-6 flex-1">
+                                                    <div className="text-center">
+                                                        <p className="text-xs font-black text-gray-900 mb-1">{debt.fromName}</p>
+                                                        <span className="text-[8px] font-black text-gray-400 uppercase px-2 py-0.5 bg-white rounded-full border border-gray-100">Debtor</span>
+                                                    </div>
+                                                    <div className="flex-1 h-[1px] bg-indigo-200 relative">
+                                                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white p-2 rounded-full border border-indigo-100 shadow-sm">
+                                                            <DollarSign size={14} className="text-indigo-600" />
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-center">
+                                                        <p className="text-xs font-black text-gray-900 mb-1">{debt.toName}</p>
+                                                        <span className="text-[8px] font-black text-gray-400 uppercase px-2 py-0.5 bg-white rounded-full border border-gray-100">Creditor</span>
+                                                    </div>
+                                                </div>
+                                                <div className="ml-12 text-right">
+                                                    <p className="text-2xl font-black text-indigo-600 tabular-nums">₱{debt.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                                                    <p className="text-[9px] font-black text-indigo-300 uppercase tracking-widest">Recommended Transfer</p>
+                                                </div>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div className="text-center py-20 bg-green-50 rounded-[3rem] border-2 border-dashed border-green-200">
+                                            <Check size={48} className="text-green-500 mx-auto mb-4" />
+                                            <h4 className="text-xl font-black text-green-700 uppercase tracking-tighter">Perfectly Balanced</h4>
+                                            <p className="text-sm font-bold text-green-600 uppercase tracking-widest mt-2">All debts have been cleared</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

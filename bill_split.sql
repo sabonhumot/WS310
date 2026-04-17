@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Mar 28, 2026 at 01:43 AM
+-- Generation Time: Apr 17, 2026 at 03:39 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -45,9 +45,11 @@ INSERT INTO `bills` (`id`, `created_by`, `bill_name`, `invite_code`, `share_toke
 (1, 9, 'asdsad', 'I0481B', NULL, '2026-03-13 01:35:35', NULL),
 (2, 9, 'asdasd', 'H5BH5P', NULL, '2026-03-13 01:51:52', NULL),
 (7, 9, 'Ligo Dagat', 'B1R3CP', NULL, '2026-03-13 02:30:11', NULL),
-(8, 10, 'La la lost you', '3Q7JRB', NULL, '2026-03-27 18:17:58', '2026-03-27 22:29:42'),
+(8, 10, 'La la lost you', '3Q7JRB', NULL, '2026-03-27 18:17:58', NULL),
 (9, 10, 'Hozier', 'RH2O49', NULL, '2026-03-27 18:58:54', '2026-03-27 22:29:40'),
-(10, 10, 'XG', 'SBSQ5O', NULL, '2026-03-27 22:40:56', NULL);
+(10, 10, 'XG', 'SBSQ5O', NULL, '2026-03-27 22:40:56', NULL),
+(11, 10, 'Risk it all', 'PEFMEG', 'b96ef30c-9c46-4974-94ff-75189f732a33', '2026-04-04 18:05:05', NULL),
+(12, 10, 'Denial is a River', 'J3X01L', '7b0bab53-e1f7-4917-8ef1-5e2c9dece295', '2026-04-04 18:44:23', NULL);
 
 -- --------------------------------------------------------
 
@@ -101,7 +103,38 @@ INSERT INTO `expenses` (`id`, `bill_id`, `expense_name`, `total_amount`, `paid_b
 (7, 8, 'dinner', 500.00, 10, NULL, 'equally', '2026-03-27 18:35:35'),
 (8, 8, 'sunflower', 200.00, 10, NULL, 'equally', '2026-03-27 18:57:39'),
 (9, 8, 'Amen', 100.00, 9, NULL, 'equally', '2026-03-27 19:01:15'),
-(12, 10, 'Loco', 100.00, 10, NULL, 'equally', '2026-03-27 22:47:27');
+(12, 10, 'Loco', 100.00, 10, NULL, 'equally', '2026-03-27 22:47:27'),
+(18, 12, 'bento', 150.00, NULL, NULL, 'equally', '2026-04-17 01:17:19'),
+(19, 12, 'work', 150.00, NULL, NULL, 'custom', '2026-04-17 01:22:07'),
+(20, 12, 'split', 500.00, NULL, NULL, 'custom', '2026-04-17 01:25:42');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `expense_payers`
+--
+
+CREATE TABLE `expense_payers` (
+  `id` int(11) NOT NULL,
+  `expense_id` int(11) NOT NULL,
+  `user_id` int(11) DEFAULT NULL,
+  `guest_user_id` int(11) DEFAULT NULL,
+  `amount` decimal(10,2) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `expense_payers`
+--
+
+INSERT INTO `expense_payers` (`id`, `expense_id`, `user_id`, `guest_user_id`, `amount`) VALUES
+(1, 6, 9, NULL, 1000.00),
+(2, 7, 10, NULL, 500.00),
+(3, 8, 10, NULL, 200.00),
+(4, 9, 9, NULL, 100.00),
+(5, 12, 10, NULL, 100.00),
+(18, 18, 10, NULL, 150.00),
+(19, 19, 10, NULL, 150.00),
+(20, 20, 11, NULL, 500.00);
 
 -- --------------------------------------------------------
 
@@ -130,7 +163,15 @@ INSERT INTO `expense_splits` (`id`, `expense_id`, `user_id`, `guest_user_id`, `a
 (19, 8, 10, NULL, 100.00),
 (20, 8, 9, NULL, 100.00),
 (23, 12, 10, NULL, 50.00),
-(24, 12, 9, NULL, 50.00);
+(24, 12, 9, NULL, 50.00),
+(38, 18, 10, NULL, 50.00),
+(39, 18, 11, NULL, 50.00),
+(40, 18, 12, NULL, 50.00),
+(41, 19, 10, NULL, 75.00),
+(42, 19, 11, NULL, 75.00),
+(43, 20, 11, NULL, 166.67),
+(44, 20, 12, NULL, 166.67),
+(45, 20, 10, NULL, 166.67);
 
 -- --------------------------------------------------------
 
@@ -153,7 +194,8 @@ CREATE TABLE `guest_users` (
 --
 
 INSERT INTO `guest_users` (`id`, `first_name`, `last_name`, `nickname`, `email`, `phone`, `created_at`) VALUES
-(1, 'Sab', 'Carp', '', 'rodeliza.2002+3@gmail.com', NULL, '2026-03-27 23:53:16');
+(1, 'Sab', 'Carp', '', 'rodeliza.2002+3@gmail.com', NULL, '2026-03-27 23:53:16'),
+(2, 'Mu Hee', 'Cha', 'dorami', 'rodeliza.1020@gmail.com', NULL, '2026-04-04 17:52:15');
 
 -- --------------------------------------------------------
 
@@ -181,7 +223,13 @@ INSERT INTO `involved_persons` (`id`, `bill_id`, `user_id`, `guest_user_id`, `ad
 (12, 9, 10, NULL, '2026-03-27 18:58:54'),
 (13, 9, 9, NULL, '2026-03-27 18:58:54'),
 (14, 10, 10, NULL, '2026-03-27 22:40:56'),
-(16, 10, 9, NULL, '2026-03-27 22:45:48');
+(16, 10, 9, NULL, '2026-03-27 22:45:48'),
+(24, 10, NULL, 2, '2026-04-04 17:52:15'),
+(25, 11, 10, NULL, '2026-04-04 18:05:05'),
+(26, 11, 9, NULL, '2026-04-04 18:05:06'),
+(27, 12, 10, NULL, '2026-04-04 18:44:23'),
+(28, 12, 11, NULL, '2026-04-04 18:44:23'),
+(42, 12, 12, NULL, '2026-04-04 19:32:34');
 
 -- --------------------------------------------------------
 
@@ -206,6 +254,7 @@ CREATE TABLE `password_resets` (
 CREATE TABLE `settlements` (
   `id` int(11) NOT NULL,
   `bill_id` int(11) NOT NULL,
+  `expense_id` int(11) DEFAULT NULL,
   `paid_by_user_id` int(11) DEFAULT NULL,
   `paid_by_guest_id` int(11) DEFAULT NULL,
   `paid_to_user_id` int(11) DEFAULT NULL,
@@ -218,9 +267,12 @@ CREATE TABLE `settlements` (
 -- Dumping data for table `settlements`
 --
 
-INSERT INTO `settlements` (`id`, `bill_id`, `paid_by_user_id`, `paid_by_guest_id`, `paid_to_user_id`, `paid_to_guest_id`, `amount`, `created_at`) VALUES
-(1, 9, 9, NULL, 10, NULL, 300.00, '2026-03-27 22:04:47'),
-(2, 10, 9, NULL, 10, NULL, 50.00, '2026-03-27 22:48:38');
+INSERT INTO `settlements` (`id`, `bill_id`, `expense_id`, `paid_by_user_id`, `paid_by_guest_id`, `paid_to_user_id`, `paid_to_guest_id`, `amount`, `created_at`) VALUES
+(1, 9, NULL, 9, NULL, 10, NULL, 300.00, '2026-03-27 22:04:47'),
+(2, 10, NULL, 9, NULL, 10, NULL, 50.00, '2026-03-27 22:48:38'),
+(19, 12, 18, 11, NULL, 10, NULL, 50.00, '2026-04-17 01:17:31'),
+(20, 12, 18, 12, NULL, 10, NULL, 50.00, '2026-04-17 01:21:15'),
+(21, 12, 19, 11, NULL, 10, NULL, 75.00, '2026-04-17 01:22:15');
 
 -- --------------------------------------------------------
 
@@ -309,6 +361,15 @@ ALTER TABLE `expenses`
   ADD KEY `paid_by_guest_id` (`paid_by_guest_id`);
 
 --
+-- Indexes for table `expense_payers`
+--
+ALTER TABLE `expense_payers`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `expense_id` (`expense_id`),
+  ADD KEY `user_id` (`user_id`),
+  ADD KEY `guest_user_id` (`guest_user_id`);
+
+--
 -- Indexes for table `expense_splits`
 --
 ALTER TABLE `expense_splits`
@@ -348,7 +409,8 @@ ALTER TABLE `settlements`
   ADD KEY `paid_by_user_id` (`paid_by_user_id`),
   ADD KEY `paid_by_guest_id` (`paid_by_guest_id`),
   ADD KEY `paid_to_user_id` (`paid_to_user_id`),
-  ADD KEY `paid_to_guest_id` (`paid_to_guest_id`);
+  ADD KEY `paid_to_guest_id` (`paid_to_guest_id`),
+  ADD KEY `expense_id` (`expense_id`);
 
 --
 -- Indexes for table `users`
@@ -377,7 +439,7 @@ ALTER TABLE `user_types`
 -- AUTO_INCREMENT for table `bills`
 --
 ALTER TABLE `bills`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=11;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=16;
 
 --
 -- AUTO_INCREMENT for table `email_verifications`
@@ -389,25 +451,31 @@ ALTER TABLE `email_verifications`
 -- AUTO_INCREMENT for table `expenses`
 --
 ALTER TABLE `expenses`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=13;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=21;
+
+--
+-- AUTO_INCREMENT for table `expense_payers`
+--
+ALTER TABLE `expense_payers`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=21;
 
 --
 -- AUTO_INCREMENT for table `expense_splits`
 --
 ALTER TABLE `expense_splits`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=25;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=46;
 
 --
 -- AUTO_INCREMENT for table `guest_users`
 --
 ALTER TABLE `guest_users`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
 
 --
 -- AUTO_INCREMENT for table `involved_persons`
 --
 ALTER TABLE `involved_persons`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=24;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=44;
 
 --
 -- AUTO_INCREMENT for table `password_resets`
@@ -419,7 +487,7 @@ ALTER TABLE `password_resets`
 -- AUTO_INCREMENT for table `settlements`
 --
 ALTER TABLE `settlements`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=22;
 
 --
 -- AUTO_INCREMENT for table `users`
@@ -458,6 +526,14 @@ ALTER TABLE `expenses`
   ADD CONSTRAINT `expenses_ibfk_3` FOREIGN KEY (`paid_by_guest_id`) REFERENCES `guest_users` (`id`) ON DELETE SET NULL;
 
 --
+-- Constraints for table `expense_payers`
+--
+ALTER TABLE `expense_payers`
+  ADD CONSTRAINT `expense_payers_ibfk_1` FOREIGN KEY (`expense_id`) REFERENCES `expenses` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `expense_payers_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `expense_payers_ibfk_3` FOREIGN KEY (`guest_user_id`) REFERENCES `guest_users` (`id`) ON DELETE SET NULL;
+
+--
 -- Constraints for table `expense_splits`
 --
 ALTER TABLE `expense_splits`
@@ -487,7 +563,8 @@ ALTER TABLE `settlements`
   ADD CONSTRAINT `settlements_ibfk_2` FOREIGN KEY (`paid_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   ADD CONSTRAINT `settlements_ibfk_3` FOREIGN KEY (`paid_by_guest_id`) REFERENCES `guest_users` (`id`) ON DELETE SET NULL,
   ADD CONSTRAINT `settlements_ibfk_4` FOREIGN KEY (`paid_to_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `settlements_ibfk_5` FOREIGN KEY (`paid_to_guest_id`) REFERENCES `guest_users` (`id`) ON DELETE SET NULL;
+  ADD CONSTRAINT `settlements_ibfk_5` FOREIGN KEY (`paid_to_guest_id`) REFERENCES `guest_users` (`id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `settlements_ibfk_6` FOREIGN KEY (`expense_id`) REFERENCES `expenses` (`id`) ON DELETE SET NULL;
 
 --
 -- Constraints for table `users`
