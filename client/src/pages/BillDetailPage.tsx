@@ -7,7 +7,6 @@ import {
     Archive,
     Trash2,
     X,
-    RefreshCcw,
     UserPlus,
     Search,
     DollarSign,
@@ -16,8 +15,7 @@ import {
     Receipt,
     ChevronLeft,
     Check,
-    Eye,
-    Users
+    Eye
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Bill, InvolvedPerson, Expense, GuestData } from '../types';
@@ -100,8 +98,11 @@ const BillDetailPage: React.FC = () => {
     const fetchBillDetails = async () => {
         try {
             setLoading(true);
-            const response = await fetch(`http://localhost:5001/api/bills/${billId}/details`);
-            if (!response.ok) throw new Error('Failed to fetch bill details');
+const response = await fetch(`http://localhost:5001/api/bills/${billId}/details`);
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(errText.includes('<!DOCTYPE') ? 'Server error - bill details endpoint' : (errText || 'Failed to load bill'));
+            }
             const data = await response.json();
             
             // The API returns { bill, involvedPersons, expenses, settlements }
@@ -144,10 +145,34 @@ const BillDetailPage: React.FC = () => {
         try {
             const excludeParam = user ? `&exclude=${user.id}` : '';
             const response = await fetch(`http://localhost:5001/api/users/search?q=${query}${excludeParam}`);
-            const data = await response.json();
-            setSearchResults(data.users || []);
+            if (!response.ok) {
+                const errText = await response.text();
+                toast.error(errText.includes('<!DOCTYPE') ? 'Server error - missing search endpoint?' : (errText || 'Search failed'));
+                setSearchResults([]);
+                return;
+            }
+            let data;
+            try {
+                data = await response.json();
+            } catch (jsonErr) {
+                toast.error('Invalid response from server');
+                setSearchResults([]);
+                return;
+            }
+            const users = data.users || [];
+            if (query.trim() && users.length === 0) {
+              setSearchResults([]);
+              return;
+            }
+            setSearchResults(users.filter((u: any) => 
+                (u.nickname || '').toLowerCase().startsWith(query.toLowerCase()) ||
+                (u.first_name || '').toLowerCase().startsWith(query.toLowerCase()) ||
+                u.username?.toLowerCase().startsWith(query.toLowerCase())
+            ));
         } catch (error) {
             console.error('Error searching users:', error);
+            toast.error('Search failed');
+            setSearchResults([]);
         }
     };
 
@@ -180,8 +205,19 @@ const BillDetailPage: React.FC = () => {
             });
             
             if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.message || 'Failed to add person');
+                let errMsg = 'Failed to add person';
+                try {
+                    const errorData = await response.clone().json();
+                    errMsg = errorData.message || errMsg;
+                } catch {
+                    try {
+                        const errText = await response.clone().text();
+                        errMsg = errText.includes('<!DOCTYPE') ? 'Server error - add person endpoint' : (errText || errMsg);
+                    } catch {
+                        errMsg = 'Failed to add person - server error';
+                    }
+                }
+                throw new Error(errMsg);
             }
             
             toast.success('Person added to bill');
@@ -189,7 +225,7 @@ const BillDetailPage: React.FC = () => {
             resetPersonForm();
             setShowAddPersonToExpenseModal(false);
         } catch (error: any) {
-            toast.error(error.message);
+            toast.error(error.message || 'Failed to add person');
         }
     };
 
@@ -209,22 +245,42 @@ const BillDetailPage: React.FC = () => {
         }
 
         // Standard user limit check: Max 3 members total
-        if (bill?.created_by_user_type_id === 1 && (billDetails?.involvedPersons.length || 0) >= 3) {
+    if (bill!.created_by_user_type_id === 1 && (billDetails!.involvedPersons.length || 0) >= 3) {
             toast.error('Standard accounts can have a maximum of 3 members total per bill.');
             return;
         }
 
 
         try {
-            const response = await fetch(`http://localhost:5001/api/bills/${bill?.id}/involved-persons/guest`, {
+const response = await fetch(`http://localhost:5001/api/bills/${bill!.id}/involved-persons`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ...guestData, created_by: user?.id })
+                body: JSON.stringify({ 
+                    guest_data: {
+                        first_name: guestData.firstName,
+                        last_name: guestData.lastName,
+                        nickname: guestData.nickname,
+                        email: guestData.email
+                    }, 
+                    created_by: user?.id 
+                })
             });
 
             if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.message || 'Failed to add guest');
+                let errMsg = 'Failed to add guest';
+                try {
+                    const errorData = await response.clone().json();
+                    errMsg = errorData.message || errMsg;
+                } catch {
+                    try {
+                        const errText = await response.clone().text();
+                        errMsg = errText.includes('<!DOCTYPE') ? 'Server error - guest add endpoint missing' : (errText || errMsg);
+                    } catch {
+                        errMsg = 'Failed to add guest - server error';
+                    }
+                }
+                toast.error(errMsg);
+                return;
             }
 
             toast.success('Guest added to bill');
@@ -321,8 +377,19 @@ const BillDetailPage: React.FC = () => {
                 setShowExpenseModal(false);
                 fetchBillDetails();
             } else {
-                const data = await response.json();
-                toast.error(data.message || 'Failed to add expense');
+                let errMsg = 'Failed to add expense';
+                try {
+                    const data = await response.clone().json();
+                    errMsg = data.message || errMsg;
+                } catch {
+                    try {
+                        const errText = await response.clone().text();
+                        errMsg = errText || errMsg;
+                    } catch {
+                        // ignore
+                    }
+                }
+                toast.error(errMsg);
             }
         } catch (error) {
             toast.error('Failed to add expense');
@@ -1008,7 +1075,10 @@ const BillDetailPage: React.FC = () => {
                                                 />
                                                 {fieldErrors.email && <p className="mt-1 text-[10px] text-red-600 font-medium">{fieldErrors.email}</p>}
                                             </div>                                            <div className="sm:col-span-2 flex justify-end gap-3 mt-2">
-                                                <button onClick={() => setShowAddPersonToExpenseModal(false)} className="px-6 py-3 font-bold text-gray-500 hover:text-gray-900 text-sm">Cancel</button>
+                                                <button onClick={() => {
+                                                    resetPersonForm();
+                                                    setShowAddPersonToExpenseModal(false);
+                                                }} className="px-6 py-3 font-bold text-gray-500 hover:text-gray-900 text-sm">Cancel</button>
                                                 <button onClick={addGuestToBill} className="px-8 py-3 bg-indigo-600 text-white font-black text-xs uppercase tracking-widest rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-100">Add Guest</button>
                                             </div>
                                         </div>
@@ -1020,10 +1090,17 @@ const BillDetailPage: React.FC = () => {
                                                     type="text"
                                                     placeholder="Search registered users..."
                                                     value={searchQuery}
+                                                    onFocus={() => handleSearchUsers(searchQuery)}
+                                                    onClick={() => handleSearchUsers('')}
                                                     onChange={(e) => handleSearchUsers(e.target.value)}
                                                     className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-100 rounded-2xl outline-indigo-500 font-bold"
                                                 />
                                             </div>
+                                            {searchQuery.trim() && searchResults.length === 0 && (
+                                                <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-100 rounded-2xl shadow-xl z-20 p-4 text-center">
+                                                    <p className="text-sm text-gray-500 font-medium">No nickname matched</p>
+                                                </div>
+                                            )}
                                             {searchResults.length > 0 && (
                                                 <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-2">
                                                     {searchResults.map(u => (
@@ -1045,7 +1122,10 @@ const BillDetailPage: React.FC = () => {
                                                 </div>
                                             )}
                                             <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-gray-50">
-                                                <button onClick={() => setShowAddPersonToExpenseModal(false)} className="px-6 py-3 font-bold text-gray-500 hover:text-gray-900 text-sm">Cancel</button>
+                                                <button onClick={() => {
+                                                    resetPersonForm();
+                                                    setShowAddPersonToExpenseModal(false);
+                                                }} className="px-6 py-3 font-bold text-gray-500 hover:text-gray-900 text-sm">Cancel</button>
                                                 <button 
                                                     onClick={() => addPersonToBill(selectedSearchPerson)} 
                                                     disabled={!selectedSearchPerson}

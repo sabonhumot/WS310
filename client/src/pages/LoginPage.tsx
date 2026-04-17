@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import { User, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import InputError from '../components/common/InputError';
 
 const LoginPage: React.FC = () => {
     const [showPassword, setShowPassword] = useState(false);
@@ -101,9 +102,7 @@ const LoginPage: React.FC = () => {
                                     }}
                                 />
                             </div>
-                            {fieldErrors.username && (
-                                <p className="mt-1 text-xs text-red-600 font-medium">{fieldErrors.username}</p>
-                            )}
+                            <InputError message={fieldErrors.username} />
                         </div>
 
                         <div>
@@ -140,9 +139,7 @@ const LoginPage: React.FC = () => {
                                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                                 </button>
                             </div>
-                            {fieldErrors.password && (
-                                <p className="mt-1 text-xs text-red-600 font-medium">{fieldErrors.password}</p>
-                            )}
+                            <InputError message={fieldErrors.password} />
                         </div>
 
                         <div className="flex items-center">
@@ -156,11 +153,7 @@ const LoginPage: React.FC = () => {
                             </label>
                         </div>
 
-                        {fieldErrors.general && (
-                            <p className="text-red-500 text-xs font-medium mt-1 animate-in fade-in slide-in-from-top-1">
-                                {fieldErrors.general}
-                            </p>
-                        )}
+                        <InputError message={fieldErrors.general} />
 
                         <button
                             type="submit"

@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Apr 17, 2026 at 03:39 AM
+-- Generation Time: Apr 18, 2026 at 01:23 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -49,7 +49,12 @@ INSERT INTO `bills` (`id`, `created_by`, `bill_name`, `invite_code`, `share_toke
 (9, 10, 'Hozier', 'RH2O49', NULL, '2026-03-27 18:58:54', '2026-03-27 22:29:40'),
 (10, 10, 'XG', 'SBSQ5O', NULL, '2026-03-27 22:40:56', NULL),
 (11, 10, 'Risk it all', 'PEFMEG', 'b96ef30c-9c46-4974-94ff-75189f732a33', '2026-04-04 18:05:05', NULL),
-(12, 10, 'Denial is a River', 'J3X01L', '7b0bab53-e1f7-4917-8ef1-5e2c9dece295', '2026-04-04 18:44:23', NULL);
+(12, 10, 'Denial is a River', 'J3X01L', '7b0bab53-e1f7-4917-8ef1-5e2c9dece295', '2026-04-04 18:44:23', NULL),
+(16, 10, 'LFG', 'NB6F19', '59b6d435-4378-46d9-b135-b950901cca9b', '2026-04-17 23:09:22', NULL),
+(17, 10, 'DASDA', 'SK0RZ5', '692f9913-4dde-431c-9a3a-037bd3cfeb84', '2026-04-17 23:16:23', NULL),
+(18, 10, 'GDSFSDA', '0NF4UP', 'fbbc53b4-4e70-4d0b-8dd6-b18d43548264', '2026-04-17 23:16:37', NULL),
+(19, 10, 'PREMIUM', 'SVU187', 'd917bfa9-a723-4fd6-962a-4499f1bafaa9', '2026-04-17 23:22:38', NULL),
+(20, 10, 'LFG!', '7NAGFP', '8b8aca4f-c9f0-412f-86b4-b91939b69de3', '2026-04-17 23:22:53', NULL);
 
 -- --------------------------------------------------------
 
@@ -106,7 +111,9 @@ INSERT INTO `expenses` (`id`, `bill_id`, `expense_name`, `total_amount`, `paid_b
 (12, 10, 'Loco', 100.00, 10, NULL, 'equally', '2026-03-27 22:47:27'),
 (18, 12, 'bento', 150.00, NULL, NULL, 'equally', '2026-04-17 01:17:19'),
 (19, 12, 'work', 150.00, NULL, NULL, 'custom', '2026-04-17 01:22:07'),
-(20, 12, 'split', 500.00, NULL, NULL, 'custom', '2026-04-17 01:25:42');
+(20, 12, 'split', 500.00, NULL, NULL, 'custom', '2026-04-17 01:25:42'),
+(21, 12, 'soil', 300.00, NULL, NULL, 'custom', '2026-04-17 16:24:07'),
+(22, 11, 'gnarly', 500.00, NULL, NULL, 'equally', '2026-04-17 22:55:13');
 
 -- --------------------------------------------------------
 
@@ -134,7 +141,10 @@ INSERT INTO `expense_payers` (`id`, `expense_id`, `user_id`, `guest_user_id`, `a
 (5, 12, 10, NULL, 100.00),
 (18, 18, 10, NULL, 150.00),
 (19, 19, 10, NULL, 150.00),
-(20, 20, 11, NULL, 500.00);
+(20, 20, 11, NULL, 500.00),
+(21, 21, 10, NULL, 200.00),
+(22, 21, 11, NULL, 100.00),
+(23, 22, 10, NULL, 500.00);
 
 -- --------------------------------------------------------
 
@@ -171,7 +181,13 @@ INSERT INTO `expense_splits` (`id`, `expense_id`, `user_id`, `guest_user_id`, `a
 (42, 19, 11, NULL, 75.00),
 (43, 20, 11, NULL, 166.67),
 (44, 20, 12, NULL, 166.67),
-(45, 20, 10, NULL, 166.67);
+(45, 20, 10, NULL, 166.67),
+(46, 21, 11, NULL, 100.00),
+(47, 21, 12, NULL, 100.00),
+(48, 21, 10, NULL, 100.00),
+(49, 22, 10, NULL, 166.67),
+(50, 22, 9, NULL, 166.67),
+(51, 22, 13, NULL, 166.67);
 
 -- --------------------------------------------------------
 
@@ -195,7 +211,8 @@ CREATE TABLE `guest_users` (
 
 INSERT INTO `guest_users` (`id`, `first_name`, `last_name`, `nickname`, `email`, `phone`, `created_at`) VALUES
 (1, 'Sab', 'Carp', '', 'rodeliza.2002+3@gmail.com', NULL, '2026-03-27 23:53:16'),
-(2, 'Mu Hee', 'Cha', 'dorami', 'rodeliza.1020@gmail.com', NULL, '2026-04-04 17:52:15');
+(4, 'Star', 'Light', 'maeve', 'rodeliza.1020@gmail.com', NULL, '2026-04-17 19:57:44'),
+(5, 'try', 'lang', 'bill', 'rodeliza.2002+5@gmail.com', NULL, '2026-04-17 22:14:21');
 
 -- --------------------------------------------------------
 
@@ -224,12 +241,26 @@ INSERT INTO `involved_persons` (`id`, `bill_id`, `user_id`, `guest_user_id`, `ad
 (13, 9, 9, NULL, '2026-03-27 18:58:54'),
 (14, 10, 10, NULL, '2026-03-27 22:40:56'),
 (16, 10, 9, NULL, '2026-03-27 22:45:48'),
-(24, 10, NULL, 2, '2026-04-04 17:52:15'),
 (25, 11, 10, NULL, '2026-04-04 18:05:05'),
 (26, 11, 9, NULL, '2026-04-04 18:05:06'),
 (27, 12, 10, NULL, '2026-04-04 18:44:23'),
 (28, 12, 11, NULL, '2026-04-04 18:44:23'),
-(42, 12, 12, NULL, '2026-04-04 19:32:34');
+(42, 12, 12, NULL, '2026-04-04 19:32:34'),
+(47, 10, NULL, 4, '2026-04-17 19:57:44'),
+(48, 8, NULL, 5, '2026-04-17 22:14:21'),
+(49, 11, 13, NULL, '2026-04-17 22:26:29'),
+(50, 16, 10, NULL, '2026-04-17 23:09:22'),
+(51, 16, 13, NULL, '2026-04-17 23:09:22'),
+(52, 16, 12, NULL, '2026-04-17 23:09:37'),
+(53, 17, 10, NULL, '2026-04-17 23:16:23'),
+(54, 17, 8, NULL, '2026-04-17 23:16:23'),
+(55, 18, 10, NULL, '2026-04-17 23:16:37'),
+(56, 19, 10, NULL, '2026-04-17 23:22:38'),
+(57, 19, 11, NULL, '2026-04-17 23:22:38'),
+(58, 19, 9, NULL, '2026-04-17 23:22:38'),
+(59, 20, 10, NULL, '2026-04-17 23:22:53'),
+(60, 20, 8, NULL, '2026-04-17 23:22:53'),
+(61, 20, 13, NULL, '2026-04-17 23:22:53');
 
 -- --------------------------------------------------------
 
@@ -272,7 +303,11 @@ INSERT INTO `settlements` (`id`, `bill_id`, `expense_id`, `paid_by_user_id`, `pa
 (2, 10, NULL, 9, NULL, 10, NULL, 50.00, '2026-03-27 22:48:38'),
 (19, 12, 18, 11, NULL, 10, NULL, 50.00, '2026-04-17 01:17:31'),
 (20, 12, 18, 12, NULL, 10, NULL, 50.00, '2026-04-17 01:21:15'),
-(21, 12, 19, 11, NULL, 10, NULL, 75.00, '2026-04-17 01:22:15');
+(21, 12, 19, 11, NULL, 10, NULL, 75.00, '2026-04-17 01:22:15'),
+(22, 12, 20, 10, NULL, 11, NULL, 166.67, '2026-04-17 16:22:41'),
+(23, 12, 20, 12, NULL, 11, NULL, 166.66, '2026-04-17 16:22:47'),
+(24, 11, 22, 9, NULL, 10, NULL, 166.67, '2026-04-17 22:55:46'),
+(25, 11, 22, NULL, NULL, 10, NULL, 166.67, '2026-04-17 22:56:10');
 
 -- --------------------------------------------------------
 
@@ -304,9 +339,10 @@ CREATE TABLE `users` (
 INSERT INTO `users` (`id`, `first_name`, `last_name`, `nickname`, `email`, `username`, `password_hash`, `user_type_id`, `email_verified`, `created_at`, `updated_at`, `viaInvitaiton`, `isActive`, `verification_token`) VALUES
 (8, 'Rodeliza', 'La Rosa', 'Rode', 'suraidasudaishii@gmail.com', 'Astrid', '$2b$10$Bjz/jFSzW5UEqxA0Q1Z3NOs3FCF2cpGgwyi3CzagZrueQqkTI6sHm', 1, 1, '2026-03-07 03:47:55', '2026-03-07 03:48:15', NULL, 0, NULL),
 (9, 'Arl', 'Joshua', 'wangwang', 'arljoshua9@gmail.com', 'woshuaaaa', '$2b$10$mpwf6dk./WrFFJbf5EOcnOPUx0EqCnQD69c6zbOOHmL21ZS0cKf1m', 1, 1, '2026-03-13 01:34:07', '2026-03-13 02:28:43', NULL, 0, NULL),
-(10, 'Rode', 'La Rosa', 'jeongyeon', 'rodeliza.2002@gmail.com', 'astridz', '$2b$10$CM0UzYSDEDsVApH4tWCSse0LFp8fCe3xgARPc8LkhNmDFQioymKIW', 1, 1, '2026-03-27 16:05:00', '2026-03-27 23:19:31', NULL, 0, NULL),
+(10, 'Rode', 'La Rosa', 'jeongyeon', 'rodeliza.2002@gmail.com', 'astridz', '$2b$10$CM0UzYSDEDsVApH4tWCSse0LFp8fCe3xgARPc8LkhNmDFQioymKIW', 2, 1, '2026-03-27 16:05:00', '2026-04-17 23:22:17', NULL, 0, NULL),
 (11, 'Rasheed', 'Paradela', 'shed', 'rodeliza.2002+1@gmail.com', 'snezhy', '$2b$10$EaARlFiOy64Dy5wE60IL1uwMLxTqY4By/ud54s6e4nfbayKiu5Tp2', 1, 1, '2026-03-27 23:01:25', '2026-03-27 23:02:48', NULL, 0, NULL),
-(12, 'Test', 'User', 'tester', 'test@example.com', 'testuser', '$2b$10$qmwFxYfAiUEAdptpEH5kvO/rsr6Het1.DK5vout0gxaFNVkA.5hRe', 1, 0, '2026-03-28 00:41:02', '2026-03-28 00:41:02', NULL, 0, NULL);
+(12, 'Test', 'User', 'tester', 'test@example.com', 'testuser', '$2b$10$qmwFxYfAiUEAdptpEH5kvO/rsr6Het1.DK5vout0gxaFNVkA.5hRe', 1, 0, '2026-03-28 00:41:02', '2026-03-28 00:41:02', NULL, 0, NULL),
+(13, 'pinky', 'up', 'pinky', 'rodeliza.1020+2@gmail.com', 'game', '$2b$10$3lApxdT3InIBkeWjhG4KEuCy5SH3WpnBhRlMG9Xgr4hKpQBXuk.fm', 1, 1, '2026-04-17 22:57:42', '2026-04-17 22:57:56', NULL, 0, NULL);
 
 -- --------------------------------------------------------
 
@@ -439,7 +475,7 @@ ALTER TABLE `user_types`
 -- AUTO_INCREMENT for table `bills`
 --
 ALTER TABLE `bills`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=16;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=21;
 
 --
 -- AUTO_INCREMENT for table `email_verifications`
@@ -451,31 +487,31 @@ ALTER TABLE `email_verifications`
 -- AUTO_INCREMENT for table `expenses`
 --
 ALTER TABLE `expenses`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=21;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=23;
 
 --
 -- AUTO_INCREMENT for table `expense_payers`
 --
 ALTER TABLE `expense_payers`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=21;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=24;
 
 --
 -- AUTO_INCREMENT for table `expense_splits`
 --
 ALTER TABLE `expense_splits`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=46;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=52;
 
 --
 -- AUTO_INCREMENT for table `guest_users`
 --
 ALTER TABLE `guest_users`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
 
 --
 -- AUTO_INCREMENT for table `involved_persons`
 --
 ALTER TABLE `involved_persons`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=44;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=62;
 
 --
 -- AUTO_INCREMENT for table `password_resets`
@@ -487,13 +523,13 @@ ALTER TABLE `password_resets`
 -- AUTO_INCREMENT for table `settlements`
 --
 ALTER TABLE `settlements`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=22;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=26;
 
 --
 -- AUTO_INCREMENT for table `users`
 --
 ALTER TABLE `users`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=13;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
 
 --
 -- AUTO_INCREMENT for table `user_types`

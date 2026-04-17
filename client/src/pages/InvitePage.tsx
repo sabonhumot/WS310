@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
+import InputError from '../components/common/InputError';
 
 const InvitePage: React.FC = () => {
     const [searchParams] = useSearchParams();
@@ -38,7 +39,7 @@ const InvitePage: React.FC = () => {
     const [formData, setFormData] = useState({
         first_name: '',
         last_name: '',
-        nickname: '',
+        nickname: sessionStorage.getItem('pendingGuestNickname') || '',
         email: sessionStorage.getItem('pendingGuestEmail') || ''
     });
 
@@ -98,7 +99,7 @@ const InvitePage: React.FC = () => {
         const errors: { [key: string]: string } = {};
         if (!formData.first_name.trim()) errors.first_name = 'First name is required';
         if (!formData.last_name.trim()) errors.last_name = 'Last name is required';
-        if (!formData.nickname.trim()) errors.nickname = 'Nickname is required';
+        if (!sessionStorage.getItem('pendingGuestNickname') && !formData.nickname.trim()) errors.nickname = 'Nickname is required';
         if (!formData.email.trim()) {
             errors.email = 'Email is required';
         } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
@@ -210,9 +211,7 @@ const InvitePage: React.FC = () => {
                                 className={`w-full px-4 py-3 bg-gray-50/50 border rounded-xl focus:outline-none focus:ring-2 transition-all font-bold text-sm ${fieldErrors.first_name ? 'border-red-500 focus:ring-red-500/20' : 'border-gray-100 focus:ring-indigo-500'}`}
                                 placeholder="Juan"
                             />
-                            {fieldErrors.first_name && (
-                                <p className="text-[10px] font-bold text-red-500 ml-1">{fieldErrors.first_name}</p>
-                            )}
+                            <InputError message={fieldErrors.first_name} />
                         </div>
                         <div className="space-y-2">
                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Last Name</label>
@@ -223,9 +222,7 @@ const InvitePage: React.FC = () => {
                                 className={`w-full px-4 py-3 bg-gray-50/50 border rounded-xl focus:outline-none focus:ring-2 transition-all font-bold text-sm ${fieldErrors.last_name ? 'border-red-500 focus:ring-red-500/20' : 'border-gray-100 focus:ring-indigo-500'}`}
                                 placeholder="Dela Cruz"
                             />
-                            {fieldErrors.last_name && (
-                                <p className="text-[10px] font-bold text-red-500 ml-1">{fieldErrors.last_name}</p>
-                            )}
+                            <InputError message={fieldErrors.last_name} />
                         </div>
                     </div>
 
@@ -235,12 +232,11 @@ const InvitePage: React.FC = () => {
                             type="text"
                             value={formData.nickname}
                             onChange={(e) => handleInputChange('nickname', e.target.value)}
-                            className={`w-full px-4 py-3 bg-gray-50/50 border rounded-xl focus:outline-none focus:ring-2 transition-all font-bold text-sm ${fieldErrors.nickname ? 'border-red-500 focus:ring-red-500/20' : 'border-gray-100 focus:ring-indigo-500'}`}
+                            disabled={!!sessionStorage.getItem('pendingGuestNickname')}
+                            className={`w-full px-4 py-3 bg-gray-50/50 border rounded-xl focus:outline-none focus:ring-2 transition-all font-bold text-sm ${fieldErrors.nickname ? 'border-red-500 focus:ring-red-500/20' : 'border-gray-100 focus:ring-indigo-500'} ${sessionStorage.getItem('pendingGuestNickname') ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
                             placeholder="Juanita"
                         />
-                        {fieldErrors.nickname && (
-                            <p className="text-[10px] font-bold text-red-500 ml-1">{fieldErrors.nickname}</p>
-                        )}
+                        <InputError message={fieldErrors.nickname} />
                     </div>
 
                     <div className="space-y-2">
@@ -252,9 +248,7 @@ const InvitePage: React.FC = () => {
                             className="w-full px-4 py-3 bg-gray-100 border border-gray-200 rounded-xl focus:outline-none focus:ring-0 font-bold text-sm text-gray-500 cursor-not-allowed"
                             placeholder="juan@example.com"
                         />
-                        {fieldErrors.email && (
-                            <p className="text-[10px] font-bold text-red-500 ml-1">{fieldErrors.email}</p>
-                        )}
+                        <InputError message={fieldErrors.email} />
                     </div>
 
                     {fieldErrors.general && (

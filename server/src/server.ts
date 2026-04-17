@@ -230,7 +230,16 @@ app.post("/api/users/check-email", async (req: Request, res: Response) => {
             [email]
         ) as any[];
 
-        res.status(200).json({ isRegistered: users.length > 0 });
+        const [guests] = await db.query(
+            "SELECT id, first_name, last_name, nickname FROM guest_users WHERE email = ?",
+            [email]
+        ) as any[];
+
+        res.status(200).json({ 
+            isRegistered: users.length > 0,
+            isGuest: guests.length > 0,
+            guestData: guests.length > 0 ? guests[0] : null
+        });
     } catch (error: any) {
         console.error("Check email error:", error.message);
         res.status(500).json({ message: "Internal server error" });
@@ -280,13 +289,23 @@ app.post("/api/bills", async (req: Request, res: Response) => {
         // Enforce Standard User Limits
         const [users] = await db.query("SELECT user_type_id FROM users WHERE id = ?", [created_by]) as any[];
         if (users.length && users[0].user_type_id === 1) { // Standard User
-            // Check person limit (1 Creator + 2 Others = 3 total)
-            const memberCount = (involved_persons ? involved_persons.length : 0);
-            if (memberCount > 2) {
-                return res.status(403).json({ message: "Standard users can add a maximum of 2 members during bill creation (3 total)." });
+            // Check member limit: creator + up to 2 other members during bill creation
+            const otherMembers = new Set<string>();
+            if (Array.isArray(involved_persons)) {
+                for (const person of involved_persons) {
+                    const key = person.user_id
+                        ? `user_${person.user_id}`
+                        : person.guest_user_id
+                            ? `guest_${person.guest_user_id}`
+                            : person.id
+                                ? `person_${person.id}`
+                                : null;
+                    if (!key) continue;
+                    if (key === `user_${created_by}`) continue;
+                    otherMembers.add(key);
+                }
             }
-
-            // Check monthly bill limit
+            if (otherMembers.size > 2) {
             const startDate = new Date();
             startDate.setDate(1);
             startDate.setHours(0, 0, 0, 0);
@@ -804,8 +823,8 @@ app.post("/api/bills/:billId/involved-persons", async (req: Request, res: Respon
         } else if (guest_data) {
             // Add guest user
             const [guestResult] = await db.query(
-                "INSERT INTO guest_users (first_name, last_name, email, phone) VALUES (?, ?, ?, ?)",
-                [guest_data.first_name, guest_data.last_name, guest_data.email, guest_data.phone || null]
+                "INSERT INTO guest_users (first_name, last_name, nickname, email, phone) VALUES (?, ?, ?, ?, ?)",
+                [guest_data.first_name, guest_data.last_name, guest_data.nickname, guest_data.email, guest_data.phone || null]
             ) as any[];
             const guestUserId = guestResult.insertId;
 
@@ -928,6 +947,12 @@ app.post("/api/bills/join", async (req: Request, res: Response) => {
 
             if (existingGuests.length > 0) {
                 guestUserId = existingGuests[0].id;
+
+                // Update existing guest's name/nickname to match what they just provided
+                await db.query(
+                    "UPDATE guest_users SET first_name = ?, last_name = ?, nickname = ? WHERE id = ?",
+                    [first_name, last_name, nickname, guestUserId]
+                );
 
                 // Ensure they are attached to the bill
                 const [existingIP] = await db.query(
@@ -1102,13 +1127,43 @@ app.post("/api/users/upgrade-guest", async (req: Request, res: Response) => {
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
-        // Create the user. The guest's First Name will be used as a default Nickname
+        // Create the user; email verification is required before logging in
         const [userResult] = await db.query(
-            "INSERT INTO users (first_name, last_name, nickname, email, username, password_hash, email_verified, user_type_id) VALUES (?, ?, ?, ?, ?, ?, 1, 1)",
+            "INSERT INTO users (first_name, last_name, nickname, email, username, password_hash, email_verified, user_type_id) VALUES (?, ?, ?, ?, ?, ?, 0, 1)",
             [first_name, last_name, first_name, email, username, hashedPassword]
         ) as any[];
 
         const newUserId = userResult.insertId;
+
+        // Generate verification token for upgraded account
+        const verificationToken = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        await db.query("INSERT INTO email_verifications (user_id, token, expires_at) VALUES (?, ?, ?)", [newUserId, verificationToken, expiresAt]);
+
+        const clientUrl = req.headers.origin || 'http://localhost:8111';
+        const verificationLink = `${clientUrl}/verify?token=${encodeURIComponent(verificationToken)}`;
+        const mailOptions = {
+            from: process.env.EMAIL_USER,
+            to: email,
+            subject: 'Verify your email - BillSplit',
+            html: `
+                <h2>Email Verification</h2>
+                <p>Click the link below to verify your email:</p>
+                <a href="${verificationLink}" style="background-color: #4f46e5; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
+                    Verify Email
+                </a>
+                <p>Or copy this link: ${verificationLink}</p>
+                <p>This link expires in 24 hours.</p>
+            `,
+        };
+
+        transporter.sendMail(mailOptions, (error: any, info: any) => {
+            if (error) {
+                console.error('✗ Error sending upgrade verification email:', error);
+            } else {
+                console.log('✓ Upgrade verification email sent to:', email);
+            }
+        });
 
         // Transfer records from guest_user_id to user_id
         await db.query("UPDATE involved_persons SET user_id = ?, guest_user_id = NULL WHERE guest_user_id = ?", [newUserId, guest_id]);
@@ -1124,7 +1179,7 @@ app.post("/api/users/upgrade-guest", async (req: Request, res: Response) => {
         const { password_hash, ...userWithoutPassword } = upgradedUser;
 
         res.status(200).json({
-            message: "Account upgraded successfully",
+            message: "Account upgraded successfully. Please verify your email before logging in.",
             user: userWithoutPassword
         });
 
@@ -1694,50 +1749,84 @@ app.post("/api/forgot-password", async (req: Request, res: Response) => {
     }
 });
 
-app.post("/api/users/upgrade-guest", async (req: Request, res: Response) => {
-    const { guest_id, first_name, last_name, nickname, email, username, password } = req.body;
+app.post("/api/guest/upgrade", async (req: Request, res: Response) => {
+    const { guest_id, password } = req.body;
 
-    if (!guest_id || !first_name || !last_name || !email || !password) {
-        return res.status(400).json({ message: "All guest details and a password are required" });
+    if (!guest_id || !password) {
+        return res.status(400).json({ message: "Guest id and password are required" });
     }
 
     try {
-        // 1. Check if email is already in use by a registered user
-        const [existingUsers] = await db.query("SELECT id FROM users WHERE email = ?", [email]) as any[];
+        const [guests] = await db.query("SELECT * FROM guest_users WHERE id = ?", [guest_id]) as any[];
+        if (guests.length === 0) {
+            return res.status(404).json({ message: "Guest session expired or not found" });
+        }
+
+        const guest = guests[0];
+
+        const [existingUsers] = await db.query("SELECT id FROM users WHERE email = ?", [guest.email]) as any[];
         if (existingUsers.length > 0) {
             return res.status(400).json({ message: "This email is already associated with a registered account. Please log in instead." });
         }
 
-        // 2. Create the user
+        let baseUsername = (guest.nickname || guest.email.split('@')[0] || 'user').toString().toLowerCase().replace(/[^a-z0-9_]/g, '');
+        if (baseUsername.length < 3) baseUsername = `user${Math.floor(Math.random() * 10000)}`;
+        let finalUsername = baseUsername;
+        let attempt = 0;
+        while (true) {
+            const [usernameMatches] = await db.query("SELECT id FROM users WHERE username = ?", [finalUsername]) as any[];
+            if (usernameMatches.length === 0) break;
+            attempt += 1;
+            finalUsername = `${baseUsername}${attempt}`;
+        }
+
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
-        const finalUsername = username || email.split('@')[0] + Math.floor(Math.random() * 1000);
-        const finalNickname = nickname || first_name;
 
         const [userResult] = await db.query(
-            "INSERT INTO users (first_name, last_name, nickname, email, username, password_hash, user_type_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            [first_name, last_name, finalNickname, email, finalUsername, hashedPassword, 1]
+            "INSERT INTO users (first_name, last_name, nickname, email, username, password_hash, email_verified, user_type_id) VALUES (?, ?, ?, ?, ?, ?, 0, 1)",
+            [guest.first_name, guest.last_name, guest.nickname || guest.first_name, guest.email, finalUsername, hashedPassword]
         ) as any[];
 
         const newUserId = userResult.insertId;
 
-        // 3. Migrate data from guest to user in critical tables
+        const verificationToken = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        await db.query("INSERT INTO email_verifications (user_id, token, expires_at) VALUES (?, ?, ?)", [newUserId, verificationToken, expiresAt]);
+
+        const clientUrl = req.headers.origin || 'http://localhost:8111';
+        const verificationLink = `${clientUrl}/verify?token=${encodeURIComponent(verificationToken)}`;
+        const mailOptions = {
+            from: process.env.EMAIL_USER,
+            to: guest.email,
+            subject: 'Verify your email - BillSplit',
+            html: `
+                <h2>Email Verification</h2>
+                <p>Click the link below to verify your email:</p>
+                <a href="${verificationLink}" style="background-color: #4f46e5; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
+                    Verify Email
+                </a>
+                <p>Or copy this link: ${verificationLink}</p>
+                <p>This link expires in 24 hours.</p>
+            `,
+        };
+
+        transporter.sendMail(mailOptions, (error: any, info: any) => {
+            if (error) {
+                console.error('✗ Error sending guest upgrade verification email:', error);
+            } else {
+                console.log('✓ Guest upgrade verification email sent to:', guest.email);
+            }
+        });
+
         await db.query("UPDATE involved_persons SET user_id = ?, guest_user_id = NULL WHERE guest_user_id = ?", [newUserId, guest_id]);
         await db.query("UPDATE expenses SET paid_by_user_id = ?, paid_by_guest_id = NULL WHERE paid_by_guest_id = ?", [newUserId, guest_id]);
         await db.query("UPDATE expense_splits SET user_id = ?, guest_user_id = NULL WHERE guest_user_id = ?", [newUserId, guest_id]);
+        await db.query("DELETE FROM guest_users WHERE id = ?", [guest_id]);
 
-        // 4. Optionally delete/deactivate guest_user record
-        // await db.query("DELETE FROM guest_users WHERE id = ?", [guest_id]);
-
-        const [newUser] = await db.query("SELECT id, first_name, last_name, nickname, email, username FROM users WHERE id = ?", [newUserId]) as any[];
-
-        res.status(200).json({
-            message: "Account upgraded successfully",
-            user: newUser[0]
-        });
-
+        res.status(200).json({ message: "Account upgrade initiated. Please verify your email before logging in." });
     } catch (error: any) {
-        console.error("Upgrade guest error:", error.message);
+        console.error("Guest upgrade error:", error.message);
         res.status(500).json({ message: "Internal server error" });
     }
 });

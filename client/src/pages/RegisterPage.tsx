@@ -2,10 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { Mail, Lock, Eye, EyeOff, User, ArrowRight } from 'lucide-react';
-import { useAuth } from '../contexts/AuthContext';
+import InputError from '../components/common/InputError';
 
 const RegisterPage: React.FC = () => {
-    const { login } = useAuth();
     const navigate = useNavigate();
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -137,10 +136,7 @@ const RegisterPage: React.FC = () => {
             }
 
             if (isGuestUpgrading) {
-                toast.success("Account successfully upgraded!");
-                localStorage.removeItem('guestSession');
-                login(data.user);
-                navigate('/bills');
+                toast.success("Account upgrade started! Please verify your email before logging in.");
             } else {
                 toast.success("Registration successful! Please check your email to verify your account.");
                 setFormData({
@@ -210,7 +206,7 @@ const RegisterPage: React.FC = () => {
                                         readOnly={isGuestUpgrading}
                                     />
                                 </div>
-                                {fieldErrors.firstName && <p className="mt-1 text-xs text-red-500 font-medium">{fieldErrors.firstName}</p>}
+                                <InputError message={fieldErrors.firstName} />
                             </div>
 
                             <div>
@@ -233,7 +229,7 @@ const RegisterPage: React.FC = () => {
                                         readOnly={isGuestUpgrading}
                                     />
                                 </div>
-                                {fieldErrors.lastName && <p className="mt-1 text-xs text-red-500 font-medium">{fieldErrors.lastName}</p>}
+                                <InputError message={fieldErrors.lastName} />
                             </div>
                         </div>
 
@@ -256,7 +252,7 @@ const RegisterPage: React.FC = () => {
                                     onChange={(e) => handleInputChange('nickname', e.target.value)}
                                 />
                             </div>
-                            {fieldErrors.nickname && <p className="mt-1 text-xs text-red-500 font-medium">{fieldErrors.nickname}</p>}
+                            <InputError message={fieldErrors.nickname} />
                         </div>
 
                         <div>
@@ -279,7 +275,7 @@ const RegisterPage: React.FC = () => {
                                     readOnly={isGuestUpgrading}
                                 />
                             </div>
-                            {fieldErrors.email && <p className="mt-1 text-xs text-red-500 font-medium">{fieldErrors.email}</p>}
+                            <InputError message={fieldErrors.email} />
                         </div>
 
                         <div>
@@ -301,7 +297,7 @@ const RegisterPage: React.FC = () => {
                                     onChange={(e) => handleInputChange('username', e.target.value)}
                                 />
                             </div>
-                            {fieldErrors.username && <p className="mt-1 text-xs text-red-500 font-medium">{fieldErrors.username}</p>}
+                            <InputError message={fieldErrors.username} />
                         </div>
 
                         <div>
@@ -330,7 +326,7 @@ const RegisterPage: React.FC = () => {
                                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                                 </button>
                             </div>
-                            {fieldErrors.password && <p className="mt-1 text-xs text-red-500 font-medium">{fieldErrors.password}</p>}
+                            <InputError message={fieldErrors.password} />
                         </div>
 
                         <div>
@@ -352,7 +348,7 @@ const RegisterPage: React.FC = () => {
                                     onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
                                 />
                             </div>
-                            {fieldErrors.confirmPassword && <p className="mt-1 text-xs text-red-500 font-medium">{fieldErrors.confirmPassword}</p>}
+                            <InputError message={fieldErrors.confirmPassword} />
                         </div>
 
                         <button

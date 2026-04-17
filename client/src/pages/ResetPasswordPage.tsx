@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { Lock, Eye, EyeOff, ArrowRight, CheckCircle2, ShieldAlert } from 'lucide-react';
 import toast from 'react-hot-toast';
+import InputError from '../components/common/InputError';
 
 const ResetPasswordPage: React.FC = () => {
     const [searchParams] = useSearchParams();
@@ -12,6 +13,7 @@ const ResetPasswordPage: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [success, setSuccess] = useState(false);
     const [invalidToken, setInvalidToken] = useState(false);
+    const [fieldErrors, setFieldErrors] = useState<{ password?: string, confirmPassword?: string }>({});
     const [formData, setFormData] = useState({
         password: '',
         confirmPassword: '',
@@ -25,13 +27,21 @@ const ResetPasswordPage: React.FC = () => {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        setFieldErrors({});
+
+        const errors: { password?: string, confirmPassword?: string } = {};
         
-        if (formData.password !== formData.confirmPassword) {
-            return toast.error("Passwords do not match");
+        if (formData.password.length < 6) {
+            errors.password = "Password must be at least 6 characters";
         }
 
-        if (formData.password.length < 6) {
-            return toast.error("Password must be at least 6 characters");
+        if (formData.password !== formData.confirmPassword) {
+            errors.confirmPassword = "Passwords do not match";
+        }
+
+        if (Object.keys(errors).length > 0) {
+            setFieldErrors(errors);
+            return;
         }
 
         setLoading(true);
@@ -126,10 +136,15 @@ const ResetPasswordPage: React.FC = () => {
                                     id="password"
                                     type={showPassword ? 'text' : 'password'}
                                     required
-                                    className="block w-full pl-10 pr-10 py-3 border border-gray-200 rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:bg-white transition-all sm:text-sm"
+                                    className={`block w-full pl-10 pr-10 py-3 border rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:bg-white transition-all sm:text-sm ${
+                                        fieldErrors.password ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-200 focus:ring-indigo-500/20 focus:border-indigo-500'
+                                    }`}
                                     placeholder="••••••••"
                                     value={formData.password}
-                                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                                    onChange={(e) => {
+                                        setFormData({ ...formData, password: e.target.value });
+                                        if (fieldErrors.password) setFieldErrors(prev => ({ ...prev, password: undefined }));
+                                    }}
                                 />
                                 <button
                                     type="button"
@@ -139,6 +154,7 @@ const ResetPasswordPage: React.FC = () => {
                                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                                 </button>
                             </div>
+                            <InputError message={fieldErrors.password} />
                         </div>
 
                         <div>
@@ -153,12 +169,18 @@ const ResetPasswordPage: React.FC = () => {
                                     id="confirmPassword"
                                     type={showPassword ? 'text' : 'password'}
                                     required
-                                    className="block w-full pl-10 pr-3 py-3 border border-gray-200 rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:bg-white transition-all sm:text-sm"
+                                    className={`block w-full pl-10 pr-3 py-3 border rounded-xl leading-5 bg-gray-50/50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:bg-white transition-all sm:text-sm ${
+                                        fieldErrors.confirmPassword ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-200 focus:ring-indigo-500/20 focus:border-indigo-500'
+                                    }`}
                                     placeholder="••••••••"
                                     value={formData.confirmPassword}
-                                    onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+                                    onChange={(e) => {
+                                        setFormData({ ...formData, confirmPassword: e.target.value });
+                                        if (fieldErrors.confirmPassword) setFieldErrors(prev => ({ ...prev, confirmPassword: undefined }));
+                                    }}
                                 />
                             </div>
+                            <InputError message={fieldErrors.confirmPassword} />
                         </div>
 
                         <button

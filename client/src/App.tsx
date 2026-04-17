@@ -202,21 +202,18 @@ const GuestRoute: React.FC<{ element: React.ReactNode }> = ({ element }) => {
 };
 
 const AppContent: React.FC = () => {
-    const { isGuestLoggedIn } = useAuth();
-    const shouldHideNavbar = isGuestLoggedIn;
-
     return (
         <div className="min-h-screen">
             <Toaster position="top-right" />
             <Routes>
                 <Route path="/" element={<PublicRoute element={<Landing />} />} />
-                <Route path="/login" element={<PublicRoute element={<>{!shouldHideNavbar && <Navbar />}<LoginPage /></>} />} />
-                <Route path="/register" element={<PublicRoute element={<>{!shouldHideNavbar && <Navbar />}<RegisterPage /></>} />} />
-                <Route path="/verify" element={<PublicRoute element={<>{!shouldHideNavbar && <Navbar />}<VerifyPage /></>} />} />
-                <Route path="/forgot-password" element={<PublicRoute element={<>{!shouldHideNavbar && <Navbar />}<ForgotPasswordPage /></>} />} />
-                <Route path="/reset-password" element={<PublicRoute element={<>{!shouldHideNavbar && <Navbar />}<ResetPasswordPage /></>} />} />
-                <Route path="/invite-email" element={<>{!shouldHideNavbar && <Navbar />}<InviteEmailPage /></>} />
-                <Route path="/invite" element={<>{!shouldHideNavbar && <Navbar />}<InvitePage /></>} />
+                <Route path="/login" element={<PublicRoute element={<><Navbar /><LoginPage /></>} />} />
+                <Route path="/register" element={<PublicRoute element={<><Navbar /><RegisterPage /></>} />} />
+                <Route path="/verify" element={<PublicRoute element={<><Navbar /><VerifyPage /></>} />} />
+                <Route path="/forgot-password" element={<PublicRoute element={<><Navbar /><ForgotPasswordPage /></>} />} />
+                <Route path="/reset-password" element={<PublicRoute element={<><Navbar /><ResetPasswordPage /></>} />} />
+                <Route path="/invite-email" element={<><Navbar /><InviteEmailPage /></>} />
+                <Route path="/invite" element={<><Navbar /><InvitePage /></>} />
 
                 {/* Protected Routes with DashboardLayout */}
                 <Route element={<ProtectedRoute element={<DashboardLayout />} />}>

@@ -22,7 +22,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import ConfirmationModal from '../components/common/ConfirmationModal';
 
 const BillsPage: React.FC = () => {
-    const { user, guestUser, login, logoutGuest, isLoading } = useAuth();
+    const { user, guestUser, logoutGuest, isLoading } = useAuth();
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const [hasOpenedUrlBill, setHasOpenedUrlBill] = useState(false);
@@ -139,10 +139,38 @@ const BillsPage: React.FC = () => {
         try {
             const excludeParam = user ? `&exclude=${user.id}` : '';
             const response = await fetch(`http://localhost:5001/api/users/search?q=${query}${excludeParam}`);
-            const data = await response.json();
-            setSearchResults(data.users || []);
+            if (!response.ok) {
+                const errText = await response.text();
+                toast.error(errText.includes('<!DOCTYPE') ? 'Server error - search endpoint failed' : (errText || 'Search failed'));
+                setSearchResults([]);
+                return;
+            }
+            let data;
+            try {
+                data = await response.json();
+            } catch (jsonErr) {
+                toast.error('Invalid response from server');
+                setSearchResults([]);
+                return;
+            }
+            if (query.trim() && !(data.users || []).length) {
+              setSearchResults([]);
+              return;
+            }
+            const allUsers = data.users || [];
+            if (query.trim() && allUsers.length === 0) {
+                setSearchResults([]);
+                return;
+            }
+            setSearchResults(allUsers.filter((u: any) => 
+                (u.nickname || '').toLowerCase().startsWith(query.toLowerCase()) ||
+                (u.first_name || '').toLowerCase().startsWith(query.toLowerCase()) ||
+                u.username?.toLowerCase().startsWith(query.toLowerCase())
+            ));
         } catch (error) {
             console.error('Error searching users:', error);
+            toast.error('Search failed');
+            setSearchResults([]);
         }
     };
 
@@ -333,7 +361,7 @@ const BillsPage: React.FC = () => {
             fetchBills();
         } catch (error) {
             console.error('Error creating bill:', error);
-            toast.error('Failed to create bill');
+            toast.error(error instanceof Error ? error.message : 'Failed to create bill');
         }
     };
 
@@ -424,14 +452,11 @@ const BillsPage: React.FC = () => {
         setIsUpgradingGuest(true);
 
         try {
-            const response = await fetch(`http://localhost:5001/api/users/upgrade-guest`, {
+            const response = await fetch(`http://localhost:5001/api/guest/upgrade`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     guest_id: guestUser?.id,
-                    first_name: guestUser?.first_name,
-                    last_name: guestUser?.last_name,
-                    email: guestUser?.email,
                     password: guestUpgradeForm.password
                 })
             });
@@ -444,12 +469,9 @@ const BillsPage: React.FC = () => {
                 return;
             }
 
-            // Success! Upgrade the user session
-            toast.success("Account created successfully! You are now a registered user.");
+            toast.success("Account upgrade started. Check your email to verify before logging in.");
             setShowGuestUpgradeModal(false);
-
-            // Re-login as the real user
-            login(data.user);
+            setIsUpgradingGuest(false);
 
         } catch (error: any) {
             toast.error(error.message || "Internal server error");
@@ -467,19 +489,10 @@ const BillsPage: React.FC = () => {
             <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                     <h1 className="text-3xl font-black text-gray-900">
-                        {isGuestLoggedIn ? "Guest Access" : "Bills & Expenses"}
+                        Bills & Expenses
                     </h1>
                     <p className="text-sm font-bold text-gray-500 mt-1 flex items-center gap-2">
-                        {isGuestLoggedIn ? (
-                            <>
-                                <span className="inline-block w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
-                                Temporary session ({Math.round(Math.max(0, ((guestUser?.expiry || 0) - new Date().getTime()) / (1000 * 60 * 60)))} hours remaining)
-                            </>
-                        ) : (
-                            <>
-                                Manage your shared expenses and settlements
-                            </>
-                        )}
+                        Manage your shared expenses and settlements
                     </p>
                 </div>
                 {!isGuestLoggedIn && (
@@ -527,12 +540,40 @@ const BillsPage: React.FC = () => {
                     </div>
                 )}
                 {isGuestLoggedIn && (
-                    <button
-                        onClick={() => navigate('/register')}
-                        className="px-6 py-3 bg-gradient-to-r from-orange-500 to-amber-500 text-white font-black uppercase tracking-widest rounded-xl hover:from-orange-600 hover:to-amber-600 transition-all text-sm shadow-lg shadow-orange-200"
-                    >
-                        Upgrade Account
-                    </button>
+                    <div className="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto relative">
+                        <div className="relative w-full sm:w-64">
+                            <div className="absolute inset-y-0 left-4 flex items-center text-gray-400 pointer-events-none">
+                                <Search size={14} />
+                            </div>
+                            <input
+                                type="text"
+                                placeholder="Search bills..."
+                                value={billSearchQuery}
+                                onChange={(e) => setBillSearchQuery(e.target.value)}
+                                className="w-full pl-11 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-sm font-bold shadow-sm"
+                            />
+                        </div>
+
+                        <div className="flex items-center gap-2 w-full sm:w-auto">
+                            <input
+                                type="text"
+                                placeholder="Invite Code"
+                                maxLength={6}
+                                value={joinCode}
+                                onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                                className="w-28 px-3 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-sm font-bold shadow-sm text-center uppercase tracking-widest placeholder:tracking-normal placeholder:font-medium"
+                            />
+                            <button
+                                onClick={handleJoinByCode}
+                                disabled={isJoiningCode || joinCode.length !== 6}
+                                className="px-4 py-2.5 bg-indigo-50 text-indigo-600 font-bold rounded-xl hover:bg-indigo-600 hover:text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                title="Join with code"
+                            >
+                                {isJoiningCode ? <RefreshCcw size={16} className="animate-spin" /> : <Plus size={20} />}
+                                <span className="sm:hidden lg:inline text-sm">Join</span>
+                            </button>
+                        </div>
+                    </div>
                 )}
             </header>
 
@@ -793,7 +834,8 @@ const BillsPage: React.FC = () => {
                                             type="text"
                                             placeholder="Search registered users..."
                                             value={searchQuery}
-                                            onClick={() => handleSearchUsers(searchQuery)}
+                                            onFocus={() => handleSearchUsers(searchQuery)}
+                                            onClick={() => handleSearchUsers('')}
                                             onBlur={() => setTimeout(() => setSearchResults([]), 250)}
                                             onChange={(e) => handleSearchUsers(e.target.value)}
                                             className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-sm font-bold"
@@ -817,6 +859,11 @@ const BillsPage: React.FC = () => {
                                                         </div>
                                                     </button>
                                                 ))}
+                                            </div>
+                                        )}
+                                        {searchQuery.trim() && searchResults.length === 0 && (
+                                            <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-100 rounded-xl shadow-xl z-20 p-4 text-center">
+                                                <p className="text-sm text-gray-500 font-medium">No nickname matched</p>
                                             </div>
                                         )}
                                         <div className="flex gap-2 w-full mt-2">

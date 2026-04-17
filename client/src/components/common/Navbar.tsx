@@ -8,12 +8,16 @@ import LogoutModal from './LogoutModal';
 
 const Navbar: React.FC = () => {
     const navigate = useNavigate();
-    const { isLoggedIn, isGuestLoggedIn, logout, user } = useAuth();
+    const { isLoggedIn, isGuestLoggedIn, logout, user, guestUser } = useAuth();
     const [showLogoutModal, setShowLogoutModal] = useState(false);
 
     const handleLogout = () => {
         setShowLogoutModal(false);
-        logout();
+        if (isGuestLoggedIn) {
+            logoutGuest();
+        } else {
+            logout();
+        }
         toast.success("Logged out successfully!");
         navigate('/');
     };
@@ -46,13 +50,19 @@ const Navbar: React.FC = () => {
                                     </button>
                                 </>
                             ) : isGuestLoggedIn ? (
-                                <button
-                                    onClick={() => setShowLogoutModal(true)}
-                                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-red-100"
-                                >
-                                    <LogOut size={18} />
-                                    Logout
-                                </button>
+                                <>
+                                    <div className="text-right">
+                                        <p className="text-sm font-semibold text-gray-900">{guestUser?.nickname || 'Guest'}</p>
+                                        <p className="text-xs text-orange-500">Guest Session</p>
+                                    </div>
+                                    <button
+                                        onClick={() => setShowLogoutModal(true)}
+                                        className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-red-100"
+                                    >
+                                        <LogOut size={18} />
+                                        Logout
+                                    </button>
+                                </>
                             ) : (
                                 <div className="flex items-center gap-3">
                                     <button
