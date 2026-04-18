@@ -306,6 +306,9 @@ app.post("/api/bills", async (req: Request, res: Response) => {
                 }
             }
             if (otherMembers.size > 2) {
+                return res.status(403).json({ message: "Standard users can add a maximum of 2 other members during bill creation." });
+            }
+
             const startDate = new Date();
             startDate.setDate(1);
             startDate.setHours(0, 0, 0, 0);

@@ -845,7 +845,7 @@ const BillsPage: React.FC = () => {
                                                 {searchResults.map(u => (
                                                     <button
                                                         key={u.id}
-                                                        onClick={(e) => { e.preventDefault(); setSelectedSearchPerson(u); setSearchQuery(u.nickname || u.first_name); setSearchResults([]); }}
+                                                        onClick={(e) => { e.preventDefault(); addPersonToBill(u); }}
                                                         className="w-full text-left p-2 hover:bg-indigo-50 rounded-lg flex items-center gap-3 transition-colors"
                                                     >
                                                         <div className="w-8 h-8 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-bold text-xs uppercase">
@@ -866,15 +866,7 @@ const BillsPage: React.FC = () => {
                                                 <p className="text-sm text-gray-500 font-medium">No nickname matched</p>
                                             </div>
                                         )}
-                                        <div className="flex gap-2 w-full mt-2">
-                                            <button
-                                                onClick={(e) => { e.preventDefault(); if (selectedSearchPerson) addPersonToBill(selectedSearchPerson); }}
-                                                disabled={!selectedSearchPerson}
-                                                className="w-full py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:shadow-none transition-all"
-                                            >
-                                                Add Selected Person
-                                            </button>
-                                        </div>
+
                                     </div>
                                 )}
 

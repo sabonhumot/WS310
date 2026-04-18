@@ -331,6 +331,7 @@ const response = await fetch(`http://localhost:5001/api/bills/${bill!.id}/involv
 
     const handleAddExpense = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (!bill) return;
         setFieldErrors({});
         const errors: Record<string, string> = {};
 
@@ -1106,7 +1107,7 @@ const response = await fetch(`http://localhost:5001/api/bills/${bill!.id}/involv
                                                     {searchResults.map(u => (
                                                         <button 
                                                             key={u.id} 
-                                                            onClick={() => setSelectedSearchPerson(u)}
+                                                            onClick={(e) => { e.preventDefault(); addPersonToBill(u); }}
                                                             className={`p-4 rounded-xl flex items-center justify-between border-2 transition-all ${selectedSearchPerson?.id === u.id ? 'bg-indigo-50 border-indigo-500' : 'bg-gray-50 border-transparent hover:border-gray-200'}`}
                                                         >
                                                             <div className="flex items-center gap-3">
@@ -1126,13 +1127,6 @@ const response = await fetch(`http://localhost:5001/api/bills/${bill!.id}/involv
                                                     resetPersonForm();
                                                     setShowAddPersonToExpenseModal(false);
                                                 }} className="px-6 py-3 font-bold text-gray-500 hover:text-gray-900 text-sm">Cancel</button>
-                                                <button 
-                                                    onClick={() => addPersonToBill(selectedSearchPerson)} 
-                                                    disabled={!selectedSearchPerson}
-                                                    className="px-10 py-3 bg-indigo-600 text-white font-black text-xs uppercase tracking-widest rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-100 disabled:opacity-50"
-                                                >
-                                                    Add Member
-                                                </button>
                                             </div>
                                         </div>
                                     )}
